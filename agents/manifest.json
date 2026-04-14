@@ -1,0 +1,11 @@
+{
+  "agents": [
+    {
+      "id": "yt-intro-title-description",
+      "name": "YouTube Intro Hook, Title & Description Generator (Total Authority - V2)",
+      "enabled": true,
+      "model": "gpt-5.4",
+      "prompt_path": "skills/yt-intro-title-description/prompt.md"
+    }
+  ]
+}
