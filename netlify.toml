@@ -5,6 +5,9 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions]
+  included_files = ["agents/**", "skills/**"]
+
 [[redirects]]
   from = "/api/agents"
   to = "/.netlify/functions/agents"
