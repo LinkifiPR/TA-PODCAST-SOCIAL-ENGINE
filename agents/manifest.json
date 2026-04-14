@@ -15,6 +15,14 @@
       "model": "gpt-5.4",
       "executor": "thumbnail",
       "prompt_path": "skills/yt-thumbnail-generator/prompt.md"
+    },
+    {
+      "id": "social-post-generator",
+      "name": "Social Media Post Generator - Total Authority",
+      "enabled": true,
+      "model": "gpt-5.4",
+      "executor": "text",
+      "prompt_path": "skills/social-post-generator/prompt.md"
     }
   ]
 }

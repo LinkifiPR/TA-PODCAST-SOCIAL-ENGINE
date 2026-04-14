@@ -10,6 +10,7 @@ Transcript-in, multi-agent content engine for Total Authority.
 - Skill prompts:
   - `skills/yt-intro-title-description/prompt.md`
   - `skills/yt-thumbnail-generator/prompt.md`
+  - `skills/social-post-generator/prompt.md`
 
 ## Deploy To Netlify
 
