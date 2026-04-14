@@ -17,3 +17,8 @@
   from = "/api/run"
   to = "/.netlify/functions/run-agents"
   status = 200
+
+[[redirects]]
+  from = "/api/thumbnail-options"
+  to = "/.netlify/functions/thumbnail-options"
+  status = 200

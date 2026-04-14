@@ -94,7 +94,8 @@ label {
 textarea,
 input[type="text"],
 input[type="url"],
-input[type="file"] {
+input[type="file"],
+select {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 12px;
@@ -133,6 +134,40 @@ input:focus {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: var(--surface);
   min-height: 68px;
+}
+
+.thumb-setup {
+  border: 1px solid rgba(249, 115, 21, 0.28);
+  border-radius: 14px;
+  background: rgba(249, 115, 21, 0.05);
+  padding: 0.9rem;
+}
+
+.thumb-setup h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.thumb-sub {
+  margin: 0.28rem 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.inline-options {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.inline-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  margin-bottom: 0;
 }
 
 .agent-option {

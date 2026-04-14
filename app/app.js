@@ -6,11 +6,18 @@ const headshotFileEl = document.getElementById("headshotFile");
 const runButton = document.getElementById("runButton");
 const statusText = document.getElementById("statusText");
 const agentsList = document.getElementById("agentsList");
+const thumbnailSetupEl = document.getElementById("thumbnailSetup");
+const thumbnailFormatEl = document.getElementById("thumbnailFormat");
+const thumbnailFormatHintEl = document.getElementById("thumbnailFormatHint");
+const thumbnailOverlayEl = document.getElementById("thumbnailOverlay");
+const thumbnailHeadshotHintEl = document.getElementById("thumbnailHeadshotHint");
+const thumbnailHeadshotEl = document.getElementById("thumbnailHeadshot");
 const resultSummary = document.getElementById("resultSummary");
 const resultsWrap = document.getElementById("results");
 const resultCardTemplate = document.getElementById("resultCardTemplate");
 
 let availableAgents = [];
+let thumbnailOptions = null;
 
 function setStatus(message, isError = false) {
   statusText.textContent = message;
@@ -31,6 +38,10 @@ function selectedAgents() {
     agentsList.querySelectorAll("input[type='checkbox']:checked")
   );
   return checked.map((el) => el.value);
+}
+
+function isThumbnailSelected() {
+  return selectedAgents().includes("yt-thumbnail-generator");
 }
 
 function renderAgents(agents) {
@@ -59,6 +70,9 @@ function renderAgents(agents) {
   }
 
   agentsList.appendChild(fragment);
+  agentsList.addEventListener("change", () => {
+    updateThumbnailSetupVisibility();
+  });
 }
 
 function renderSummary(payload) {
@@ -130,6 +144,119 @@ function getAgentLabel(agentId) {
   return match ? match.name : agentId;
 }
 
+function renderThumbnailOptions(options) {
+  thumbnailOptions = options;
+
+  thumbnailFormatEl.innerHTML = "";
+  for (const format of options.formats || []) {
+    const opt = document.createElement("option");
+    opt.value = format;
+    opt.textContent = format;
+    if (format === options.recommendedFormat) opt.selected = true;
+    thumbnailFormatEl.appendChild(opt);
+  }
+
+  thumbnailFormatHintEl.textContent = `Recommended: ${options.recommendedFormat}. ${options.recommendedReason}`;
+
+  thumbnailHeadshotEl.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "No specific headshot";
+  thumbnailHeadshotEl.appendChild(noneOpt);
+
+  const available = Array.isArray(options.availableHeadshots)
+    ? options.availableHeadshots
+    : [];
+  for (const name of available) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    if (name === options.recommendedHeadshot) opt.selected = true;
+    thumbnailHeadshotEl.appendChild(opt);
+  }
+
+  const hasUpload = Boolean(headshotFileEl.files?.[0]);
+  const yesRadio = document.querySelector(
+    "input[name='thumbnailHeadshotMode'][value='yes']"
+  );
+  const noRadio = document.querySelector(
+    "input[name='thumbnailHeadshotMode'][value='no']"
+  );
+  const shouldUseHeadshot = hasUpload || options.headshotFit === "yes";
+  if (shouldUseHeadshot) yesRadio.checked = true;
+  else noRadio.checked = true;
+
+  if (hasUpload) {
+    thumbnailHeadshotHintEl.textContent =
+      "You uploaded a headshot. If 'Yes' is selected, the uploaded file is used.";
+  } else if (available.length) {
+    thumbnailHeadshotHintEl.textContent =
+      `Headshot fit: ${options.headshotFit}. Recommended: ${options.recommendedHeadshot || "none"}.`;
+  } else {
+    thumbnailHeadshotHintEl.textContent =
+      `Headshot fit: ${options.headshotFit}. No local headshot library detected on server, upload one above if needed.`;
+  }
+
+  thumbnailOverlayEl.value = "";
+}
+
+async function loadThumbnailOptions() {
+  const sourceText = sourceTextEl.value.trim();
+  if (!sourceText) {
+    thumbnailFormatHintEl.textContent = "Paste transcript first to get recommendations.";
+    return;
+  }
+
+  const response = await fetch("/api/thumbnail-options", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      transcript: sourceText,
+      request: requestEl.value.trim(),
+    }),
+  });
+  const payload = await parseApiResponse(response);
+  renderThumbnailOptions(payload);
+}
+
+async function updateThumbnailSetupVisibility() {
+  if (!isThumbnailSelected()) {
+    thumbnailSetupEl.classList.add("hidden");
+    return;
+  }
+
+  thumbnailSetupEl.classList.remove("hidden");
+  try {
+    await loadThumbnailOptions();
+  } catch (err) {
+    thumbnailFormatHintEl.textContent =
+      err.message || "Could not load thumbnail recommendations.";
+  }
+}
+
+function getThumbnailConfig() {
+  const selectedMode = document.querySelector(
+    "input[name='thumbnailHeadshotMode']:checked"
+  );
+  if (!selectedMode) {
+    throw new Error("Please answer the thumbnail question: use a headshot or not.");
+  }
+
+  const overlay = thumbnailOverlayEl.value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ");
+
+  return {
+    formatName: thumbnailFormatEl.value || thumbnailOptions?.recommendedFormat || "ACCUSATION",
+    includeHeadshot: selectedMode.value === "yes",
+    selectedHeadshot: thumbnailHeadshotEl.value || "",
+    textOverlay: overlay,
+  };
+}
+
 async function parseApiResponse(response) {
   const raw = await response.text();
   let payload = null;
@@ -163,6 +290,8 @@ async function runSingleAgent(payloadBase, agentId) {
     body: JSON.stringify({
       ...payloadBase,
       selectedAgents: [agentId],
+      thumbnailConfig:
+        agentId === "yt-thumbnail-generator" ? payloadBase.thumbnailConfig : undefined,
     }),
   });
 
@@ -183,6 +312,7 @@ async function loadAgents() {
     }
     availableAgents = payload.agents || [];
     renderAgents(availableAgents);
+    await updateThumbnailSetupVisibility();
   } catch (err) {
     setStatus(err.message || "Could not load agents.", true);
   }
@@ -223,12 +353,18 @@ form.addEventListener("submit", async (event) => {
       headshotFilename = file.name;
     }
 
+    let thumbnailConfig = null;
+    if (chosenAgents.includes("yt-thumbnail-generator")) {
+      thumbnailConfig = getThumbnailConfig();
+    }
+
     const payloadBase = {
       transcript: sourceText,
       videoUrl,
       request: requestEl.value.trim(),
       headshotDataUrl,
       headshotFilename,
+      thumbnailConfig,
     };
 
     const results = [];
@@ -270,6 +406,24 @@ form.addEventListener("submit", async (event) => {
     setStatus(err.message || "Unexpected error during run.", true);
   } finally {
     runButton.disabled = false;
+  }
+});
+
+sourceTextEl.addEventListener("blur", () => {
+  if (isThumbnailSelected()) {
+    updateThumbnailSetupVisibility();
+  }
+});
+
+requestEl.addEventListener("blur", () => {
+  if (isThumbnailSelected()) {
+    updateThumbnailSetupVisibility();
+  }
+});
+
+headshotFileEl.addEventListener("change", () => {
+  if (isThumbnailSelected() && thumbnailOptions) {
+    renderThumbnailOptions(thumbnailOptions);
   }
 });
 

@@ -64,6 +64,53 @@
             </div>
           </div>
 
+          <section id="thumbnailSetup" class="thumb-setup hidden">
+            <h3>Thumbnail Questions</h3>
+            <p class="thumb-sub">
+              This is required when running the thumbnail agent.
+            </p>
+
+            <div class="grid two">
+              <div>
+                <label for="thumbnailFormat">1. Choose Thumbnail Format</label>
+                <select id="thumbnailFormat"></select>
+                <p id="thumbnailFormatHint" class="field-note"></p>
+              </div>
+              <div>
+                <label for="thumbnailOverlay">Overlay Text (Optional, max 4 words)</label>
+                <input
+                  id="thumbnailOverlay"
+                  type="text"
+                  placeholder="Leave blank for no text"
+                />
+              </div>
+            </div>
+
+            <div class="grid two">
+              <div>
+                <label>2. Use A Headshot?</label>
+                <div class="inline-options">
+                  <label class="inline-option">
+                    <input type="radio" name="thumbnailHeadshotMode" value="yes" />
+                    Yes
+                  </label>
+                  <label class="inline-option">
+                    <input type="radio" name="thumbnailHeadshotMode" value="no" />
+                    No
+                  </label>
+                </div>
+                <p id="thumbnailHeadshotHint" class="field-note"></p>
+              </div>
+              <div>
+                <label for="thumbnailHeadshot">Headshot Choice</label>
+                <select id="thumbnailHeadshot"></select>
+                <p class="field-note">
+                  If you upload a headshot above and select "Yes", the uploaded image is used.
+                </p>
+              </div>
+            </div>
+          </section>
+
           <div class="actions">
             <button id="runButton" type="submit">Run Agents</button>
             <p id="statusText" class="status-text"></p>

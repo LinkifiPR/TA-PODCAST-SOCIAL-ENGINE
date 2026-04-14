@@ -33,7 +33,11 @@ After deploy, open the site URL and run the workflow from the UI.
 2. Optionally add video URL and run instruction.
 3. Optionally upload a headshot image for thumbnail generation.
 4. Select agents.
-5. Click `Run Agents`.
+5. If thumbnail agent is selected, answer the thumbnail questions:
+   - Choose format
+   - Choose whether to use a headshot
+   - Optional overlay text
+6. Click `Run Agents`.
 
 You get:
 

@@ -130,6 +130,29 @@ function pickHeadshotForFormat(formatName, available) {
   return available[0] || null;
 }
 
+function formatHeadshotFit(formatName) {
+  const always = new Set([
+    "TITLE HEAD",
+    "DRAMATIC FACE",
+    "CONVERSATION QUESTION",
+    "PROBLEM STATE",
+    "DON'T DO THIS",
+    "CONFLICT",
+    "COMMENT / POST",
+    "ACCUSATION",
+  ]);
+  const sometimes = new Set([
+    "A AFFECTS B",
+    "CONTRAST",
+    "MOTION ARROW",
+    "MID PROGRESSION",
+    "REVIEW",
+  ]);
+  if (always.has(formatName)) return "yes";
+  if (sometimes.has(formatName)) return "sometimes";
+  return "rarely";
+}
+
 function chooseThumbnailFormat(sourceText, requestText) {
   const haystack = `${sourceText}\n${requestText}`.toLowerCase();
   if (/\b(review|rating|worth it|price)\b/.test(haystack)) {
@@ -147,6 +170,27 @@ function chooseThumbnailFormat(sourceText, requestText) {
   return ["ACCUSATION", "The message is a direct wake-up call about AI visibility risk."];
 }
 
+function describeFormatReason(formatName) {
+  const reasons = {
+    "TITLE HEAD": "Strong for expert-led educational hooks with a clear promise.",
+    "DRAMATIC FACE": "Best for emotional shock and immediate scroll interruption.",
+    "A AFFECTS B": "Useful when one change causes a clear visibility consequence.",
+    "CONVERSATION QUESTION": "Great for provocative interview-style framing.",
+    "3-PANEL PROGRESS": "Works for before-during-after transformation narratives.",
+    "PROBLEM STATE": "Highlights visible failure and raises urgency instantly.",
+    CONTRAST: "Creates curiosity through a clear side-by-side difference.",
+    "DON'T DO THIS": "Leverages loss aversion and mistake prevention.",
+    ELIMINATORS: "Effective when filtering to critical factors only.",
+    "MOTION ARROW": "Adds momentum and direction to growth/change stories.",
+    CONFLICT: "Builds tension by positioning opposing ideas head-to-head.",
+    "MID PROGRESSION": "Shows in-progress momentum and anticipation.",
+    "COMMENT / POST": "Anchors curiosity in a specific social proof artifact.",
+    ACCUSATION: "Directly challenges the viewer and creates personal stakes.",
+    REVIEW: "Works for verdict-style value judgement and comparison.",
+  };
+  return reasons[formatName] || "Matched to the transcript hook and emotional tension.";
+}
+
 function inferTopicPhrase(sourceText) {
   const cleaned = String(sourceText || "")
     .replace(/\s+/g, " ")
@@ -156,39 +200,43 @@ function inferTopicPhrase(sourceText) {
 }
 
 function buildThumbnailPlan({ sourceText, request, hasUploadedHeadshot, availableHeadshots }) {
-  const [formatName, formatReason] = chooseThumbnailFormat(sourceText, request);
-  const includeHeadshot = hasUploadedHeadshot || formatName !== "CONTRAST";
+  const [recommendedFormatName, formatReason] = chooseThumbnailFormat(sourceText, request);
+  const fit = formatHeadshotFit(recommendedFormatName);
+  const includeHeadshot = hasUploadedHeadshot || fit === "yes";
   const recommendedHeadshot = includeHeadshot
-    ? pickHeadshotForFormat(formatName, availableHeadshots)
+    ? pickHeadshotForFormat(recommendedFormatName, availableHeadshots)
     : null;
 
   const overlayByFormat = {
-    "DON'T DO THIS": "AI IGNORES YOU",
-    "DRAMATIC FACE": "INVISIBLE TO AI",
+    "DON'T DO THIS": "",
+    "DRAMATIC FACE": "",
     REVIEW: "WORTH IT?",
     CONTRAST: "GOOGLE VS AI",
-    ACCUSATION: "YOU'RE MISSING OUT",
+    ACCUSATION: "",
   };
-  const textOverlay = overlayByFormat[formatName] || "AI VISIBILITY GAP";
+  const textOverlay = overlayByFormat[recommendedFormatName] || "";
 
-  const topicPhrase = inferTopicPhrase(sourceText);
   const subjectLine = includeHeadshot
     ? "hyper-stylised portrait of the host with a confident, high-contrast expression"
     : "single striking visual metaphor for AI visibility and search exclusion";
 
-  const imagePrompt = [
-    `${formatName} style YouTube thumbnail composition`,
+  const basePrompt = [
+    `${recommendedFormatName} style YouTube thumbnail composition`,
     subjectLine,
-    `topic emphasis: ${topicPhrase}`,
+    "focus on AI visibility, recommendation engines, and brand discoverability",
     "dark charcoal to deep navy gradient background",
     "cinematic directional lighting with sharp subject separation",
     "vivid orange (#F97315) rim light and glow accents as dominant visual signature",
-    `bold high-contrast text overlay "${textOverlay}"`,
+    "do not render any extra text, subtitles, timestamps, names, logos, watermarks, UI labels, or captions",
     "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
   ].join(", ");
 
+  const imagePrompt = textOverlay
+    ? `${basePrompt}, render only this exact text overlay and no other words: "${textOverlay}"`
+    : `${basePrompt}, no text overlay`;
+
   return {
-    formatName,
+    recommendedFormatName,
     formatReason,
     includeHeadshot,
     recommendedHeadshot,
@@ -197,6 +245,7 @@ function buildThumbnailPlan({ sourceText, request, hasUploadedHeadshot, availabl
       : "This format performs better with a clean concept-led visual.",
     textOverlay,
     imagePrompt,
+    recommendedTextOverlay: textOverlay,
   };
 }
 
@@ -344,6 +393,7 @@ async function runThumbnailAgent({
   request,
   headshotDataUrl,
   headshotFilename,
+  thumbnailConfig,
 }) {
   const headshotsDir = process.env.HEADSHOTS_DIR || "/Users/chrispanteli/Documents/YT HEADSHOTS";
   const availableHeadshots = await listHeadshots(headshotsDir);
@@ -355,22 +405,56 @@ async function runThumbnailAgent({
     availableHeadshots,
   });
 
-  const formatName = plan.formatName;
-  const formatReason = plan.formatReason;
-  const headshotReason = plan.headshotReason;
-  const textOverlay = plan.textOverlay;
-  const imagePrompt = plan.imagePrompt;
+  const chosenFormat = String(thumbnailConfig?.formatName || plan.recommendedFormatName || "ACCUSATION").toUpperCase();
+  const includeHeadshot =
+    typeof thumbnailConfig?.includeHeadshot === "boolean"
+      ? thumbnailConfig.includeHeadshot
+      : plan.includeHeadshot === true;
+  const chosenHeadshot = String(thumbnailConfig?.selectedHeadshot || plan.recommendedHeadshot || "").trim();
+  const chosenOverlayRaw =
+    typeof thumbnailConfig?.textOverlay === "string"
+      ? thumbnailConfig.textOverlay.trim()
+      : plan.recommendedTextOverlay || "";
+  const chosenOverlay = chosenOverlayRaw
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ");
+
+  const subjectLine = includeHeadshot
+    ? "hyper-stylised portrait of the host with a confident, high-contrast expression"
+    : "single striking visual metaphor for AI visibility and search exclusion";
+
+  const basePrompt = [
+    `${chosenFormat} style YouTube thumbnail composition`,
+    subjectLine,
+    "focus on AI visibility, recommendation engines, and brand discoverability",
+    "dark charcoal to deep navy gradient background",
+    "cinematic directional lighting with sharp subject separation",
+    "vivid orange (#F97315) rim light and glow accents as dominant visual signature",
+    "do not render any extra text, subtitles, timestamps, names, logos, watermarks, UI labels, or captions",
+    "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
+  ].join(", ");
+  const imagePrompt = chosenOverlay
+    ? `${basePrompt}, render only this exact text overlay and no other words: "${chosenOverlay}"`
+    : `${basePrompt}, no text overlay`;
+
+  const formatName = chosenFormat;
+  const formatReason = describeFormatReason(chosenFormat);
+  const headshotReason = includeHeadshot
+    ? "Human expression amplifies urgency and click intent for this format."
+    : "This format performs better with a clean concept-led visual.";
+  const textOverlay = chosenOverlay;
 
   let selectedHeadshot = null;
   let selectedHeadshotDataUrl = null;
 
-  if (headshotDataUrl) {
+  if (includeHeadshot && headshotDataUrl) {
     selectedHeadshot = headshotFilename || "uploaded-headshot";
     selectedHeadshotDataUrl = headshotDataUrl;
   } else {
-    const includeHeadshot = plan.includeHeadshot === true;
     if (includeHeadshot && availableHeadshots.length) {
-      const recommended = String(plan.recommendedHeadshot || "").trim();
+      const recommended = chosenHeadshot || String(plan.recommendedHeadshot || "").trim();
       const chosen =
         (recommended && availableHeadshots.includes(recommended) && recommended) ||
         pickHeadshotForFormat(formatName, availableHeadshots);
@@ -475,6 +559,10 @@ exports.handler = async (event) => {
 
     const headshotDataUrl = typeof body.headshotDataUrl === "string" ? body.headshotDataUrl : null;
     const headshotFilename = typeof body.headshotFilename === "string" ? body.headshotFilename : null;
+    const thumbnailConfig =
+      body.thumbnailConfig && typeof body.thumbnailConfig === "object"
+        ? body.thumbnailConfig
+        : null;
 
     const { agents } = await loadManifest();
     const selectedAgents = filterAgents(agents, selectedAgentIds);
@@ -491,6 +579,7 @@ exports.handler = async (event) => {
           request,
           headshotDataUrl,
           headshotFilename,
+          thumbnailConfig,
         })
       )
     );
