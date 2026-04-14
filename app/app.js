@@ -160,6 +160,12 @@ form.addEventListener("submit", async (event) => {
   resultsWrap.innerHTML = "";
 
   try {
+    const rawVideoUrl = videoUrlEl.value.trim();
+    const videoUrl =
+      rawVideoUrl && !/^https?:\/\//i.test(rawVideoUrl)
+        ? `https://${rawVideoUrl}`
+        : rawVideoUrl;
+
     let headshotDataUrl = null;
     let headshotFilename = null;
     const file = headshotFileEl.files?.[0];
@@ -173,7 +179,7 @@ form.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         transcript: sourceText,
-        videoUrl: videoUrlEl.value.trim(),
+        videoUrl,
         request: requestEl.value.trim(),
         selectedAgents: chosenAgents,
         headshotDataUrl,
