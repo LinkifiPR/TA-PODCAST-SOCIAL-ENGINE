@@ -130,6 +130,13 @@ function pickHeadshotForFormat(formatName, available) {
   return available[0] || null;
 }
 
+function resolveHeadshotName(requestedName, available) {
+  const wanted = String(requestedName || "").trim().toLowerCase();
+  if (!wanted) return null;
+  const map = new Map(available.map((name) => [name.toLowerCase(), name]));
+  return map.get(wanted) || null;
+}
+
 function formatHeadshotFit(formatName) {
   const always = new Set([
     "TITLE HEAD",
@@ -433,11 +440,12 @@ async function runThumbnailAgent({
     "cinematic directional lighting with sharp subject separation",
     "vivid orange (#F97315) rim light and glow accents as dominant visual signature",
     "do not render any extra text, subtitles, timestamps, names, logos, watermarks, UI labels, or captions",
+    "hard constraint: any unapproved text is a failure",
     "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
   ].join(", ");
   const imagePrompt = chosenOverlay
-    ? `${basePrompt}, render only this exact text overlay and no other words: "${chosenOverlay}"`
-    : `${basePrompt}, no text overlay`;
+    ? `${basePrompt}, approved overlay is exactly this and nothing else: "${chosenOverlay}", if additional text would appear then render no text instead`
+    : `${basePrompt}, absolutely no text, letters, numbers, symbols, labels, subtitles, or captions anywhere in the image`;
 
   const formatName = chosenFormat;
   const formatReason = describeFormatReason(chosenFormat);
@@ -453,24 +461,31 @@ async function runThumbnailAgent({
     selectedHeadshot = headshotFilename || "uploaded-headshot";
     selectedHeadshotDataUrl = headshotDataUrl;
   } else {
+    if (includeHeadshot && !availableHeadshots.length) {
+      throw new Error(
+        "Headshot was requested but no server headshot library is available. Upload a headshot file in the UI and rerun."
+      );
+    }
+
     if (includeHeadshot && availableHeadshots.length) {
       const recommended = chosenHeadshot || String(plan.recommendedHeadshot || "").trim();
-      const chosen =
-        (recommended && availableHeadshots.includes(recommended) && recommended) ||
-        pickHeadshotForFormat(formatName, availableHeadshots);
+      const resolvedRecommended = resolveHeadshotName(recommended, availableHeadshots);
+      const chosen = resolvedRecommended || pickHeadshotForFormat(formatName, availableHeadshots);
 
-      if (chosen) {
-        const bytes = await fs.readFile(path.join(headshotsDir, chosen));
-        const ext = path.extname(chosen).toLowerCase();
-        const mimeType =
-          ext === ".jpg" || ext === ".jpeg"
-            ? "image/jpeg"
-            : ext === ".webp"
-              ? "image/webp"
-              : "image/png";
-        selectedHeadshot = chosen;
-        selectedHeadshotDataUrl = toDataUrlFromBuffer(bytes, mimeType);
+      if (!chosen) {
+        throw new Error("Headshot was requested, but no matching headshot file was found on server.");
       }
+
+      const bytes = await fs.readFile(path.join(headshotsDir, chosen));
+      const ext = path.extname(chosen).toLowerCase();
+      const mimeType =
+        ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : ext === ".webp"
+            ? "image/webp"
+            : "image/png";
+      selectedHeadshot = chosen;
+      selectedHeadshotDataUrl = toDataUrlFromBuffer(bytes, mimeType);
     }
   }
 

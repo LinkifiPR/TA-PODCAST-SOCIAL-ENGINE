@@ -18,6 +18,7 @@ const resultCardTemplate = document.getElementById("resultCardTemplate");
 
 let availableAgents = [];
 let thumbnailOptions = null;
+let thumbnailOptionsTimer = null;
 
 function setStatus(message, isError = false) {
   statusText.textContent = message;
@@ -156,7 +157,13 @@ function renderThumbnailOptions(options) {
     thumbnailFormatEl.appendChild(opt);
   }
 
-  thumbnailFormatHintEl.textContent = `Recommended: ${options.recommendedFormat}. ${options.recommendedReason}`;
+  const altFormats = Array.isArray(options.alternatives)
+    ? options.alternatives.filter(Boolean)
+    : [];
+  const altLabel = altFormats.length
+    ? ` Alternatives: ${altFormats.join(" • ")}.`
+    : "";
+  thumbnailFormatHintEl.textContent = `Recommended: ${options.recommendedFormat}. ${options.recommendedReason}${altLabel}`;
 
   thumbnailHeadshotEl.innerHTML = "";
   const noneOpt = document.createElement("option");
@@ -164,40 +171,49 @@ function renderThumbnailOptions(options) {
   noneOpt.textContent = "No specific headshot";
   thumbnailHeadshotEl.appendChild(noneOpt);
 
+  const configuredChoices = Array.isArray(options.headshotChoices)
+    ? options.headshotChoices
+    : [];
   const available = Array.isArray(options.availableHeadshots)
     ? options.availableHeadshots
     : [];
-  for (const name of available) {
+  const lowerAvailable = new Set(available.map((name) => name.toLowerCase()));
+  const mergedChoices = Array.from(
+    new Set([...configuredChoices, ...available].filter(Boolean))
+  );
+  for (const name of mergedChoices) {
     const opt = document.createElement("option");
     opt.value = name;
-    opt.textContent = name;
+    const availableLabel = lowerAvailable.has(String(name).toLowerCase())
+      ? ""
+      : " (Upload Required In Netlify)";
+    opt.textContent = `${name}${availableLabel}`;
     if (name === options.recommendedHeadshot) opt.selected = true;
     thumbnailHeadshotEl.appendChild(opt);
   }
 
-  const hasUpload = Boolean(headshotFileEl.files?.[0]);
   const yesRadio = document.querySelector(
     "input[name='thumbnailHeadshotMode'][value='yes']"
   );
   const noRadio = document.querySelector(
     "input[name='thumbnailHeadshotMode'][value='no']"
   );
-  const shouldUseHeadshot = hasUpload || options.headshotFit === "yes";
-  if (shouldUseHeadshot) yesRadio.checked = true;
-  else noRadio.checked = true;
+  yesRadio.checked = false;
+  noRadio.checked = false;
 
+  const hasUpload = Boolean(headshotFileEl.files?.[0]);
   if (hasUpload) {
     thumbnailHeadshotHintEl.textContent =
-      "You uploaded a headshot. If 'Yes' is selected, the uploaded file is used.";
-  } else if (available.length) {
+      "You uploaded a headshot. If you select 'Yes', your uploaded file is used first.";
+  } else if (mergedChoices.length) {
     thumbnailHeadshotHintEl.textContent =
-      `Headshot fit: ${options.headshotFit}. Recommended: ${options.recommendedHeadshot || "none"}.`;
+      `Recommended: ${options.recommendedHeadshot || "none"} (${options.headshotReason || "expression match"}).`;
   } else {
     thumbnailHeadshotHintEl.textContent =
-      `Headshot fit: ${options.headshotFit}. No local headshot library detected on server, upload one above if needed.`;
+      "No server headshots detected. Upload one above if you want a person in the thumbnail.";
   }
 
-  thumbnailOverlayEl.value = "";
+  thumbnailOverlayEl.value = options.suggestedOverlayText || "";
 }
 
 async function loadThumbnailOptions() {
@@ -255,6 +271,14 @@ function getThumbnailConfig() {
     selectedHeadshot: thumbnailHeadshotEl.value || "",
     textOverlay: overlay,
   };
+}
+
+function queueThumbnailRefresh() {
+  if (!isThumbnailSelected()) return;
+  clearTimeout(thumbnailOptionsTimer);
+  thumbnailOptionsTimer = setTimeout(() => {
+    updateThumbnailSetupVisibility();
+  }, 450);
 }
 
 async function parseApiResponse(response) {
@@ -355,6 +379,9 @@ form.addEventListener("submit", async (event) => {
 
     let thumbnailConfig = null;
     if (chosenAgents.includes("yt-thumbnail-generator")) {
+      if (!thumbnailOptions) {
+        await loadThumbnailOptions();
+      }
       thumbnailConfig = getThumbnailConfig();
     }
 
@@ -409,17 +436,11 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-sourceTextEl.addEventListener("blur", () => {
-  if (isThumbnailSelected()) {
-    updateThumbnailSetupVisibility();
-  }
-});
+sourceTextEl.addEventListener("blur", queueThumbnailRefresh);
+sourceTextEl.addEventListener("input", queueThumbnailRefresh);
 
-requestEl.addEventListener("blur", () => {
-  if (isThumbnailSelected()) {
-    updateThumbnailSetupVisibility();
-  }
-});
+requestEl.addEventListener("blur", queueThumbnailRefresh);
+requestEl.addEventListener("input", queueThumbnailRefresh);
 
 headshotFileEl.addEventListener("change", () => {
   if (isThumbnailSelected() && thumbnailOptions) {
