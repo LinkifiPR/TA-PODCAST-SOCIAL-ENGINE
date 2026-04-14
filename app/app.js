@@ -34,6 +34,37 @@ async function fileToDataUrl(file) {
   });
 }
 
+async function fileToOptimizedDataUrl(file) {
+  const fallback = () => fileToDataUrl(file);
+  try {
+    const originalDataUrl = await fileToDataUrl(file);
+    const img = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Could not decode uploaded image."));
+      image.src = originalDataUrl;
+    });
+
+    const maxDimension = 1280;
+    const scale = Math.min(
+      1,
+      maxDimension / Math.max(img.width || 1, img.height || 1)
+    );
+    const targetWidth = Math.max(1, Math.round((img.width || 1) * scale));
+    const targetHeight = Math.max(1, Math.round((img.height || 1) * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return fallback();
+    ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  } catch (_) {
+    return fallback();
+  }
+}
+
 function selectedAgents() {
   const checked = Array.from(
     agentsList.querySelectorAll("input[type='checkbox']:checked")
@@ -93,16 +124,24 @@ function renderSummary(payload) {
 
 function renderArtifactImage(artifact) {
   const wrap = document.createElement("div");
+  const src = artifact.dataUrl || artifact.url || "";
+  if (!src) return wrap;
 
   const img = document.createElement("img");
-  img.src = artifact.dataUrl;
+  img.src = src;
   img.alt = artifact.filename || "Generated thumbnail";
   img.className = "artifact-image";
 
   const link = document.createElement("a");
-  link.href = artifact.dataUrl;
-  link.download = artifact.filename || "thumbnail.png";
-  link.textContent = `Download ${artifact.filename || "image"}`;
+  link.href = src;
+  if (artifact.dataUrl) {
+    link.download = artifact.filename || "thumbnail.png";
+    link.textContent = `Download ${artifact.filename || "image"}`;
+  } else {
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Open generated image";
+  }
   link.className = "artifact-link";
 
   wrap.append(img, link);
@@ -129,7 +168,7 @@ function renderResults(results) {
     const artifactWrap = card.querySelector(".artifact-wrap");
     const artifacts = Array.isArray(result.artifacts) ? result.artifacts : [];
     for (const artifact of artifacts) {
-      if (artifact?.type === "image" && artifact?.dataUrl) {
+      if (artifact?.type === "image" && (artifact?.dataUrl || artifact?.url)) {
         artifactWrap.appendChild(renderArtifactImage(artifact));
       }
     }
@@ -291,6 +330,11 @@ async function parseApiResponse(response) {
   }
 
   if (!response.ok) {
+    if (raw.includes("Sandbox.Timedout")) {
+      throw new Error(
+        "Thumbnail generation timed out on Netlify (30s limit). Re-run the thumbnail agent by itself, and use a smaller uploaded headshot if possible."
+      );
+    }
     const detail =
       (payload && (payload.error || payload.message)) ||
       raw.slice(0, 220) ||
@@ -373,7 +417,7 @@ form.addEventListener("submit", async (event) => {
     let headshotFilename = null;
     const file = headshotFileEl.files?.[0];
     if (file) {
-      headshotDataUrl = await fileToDataUrl(file);
+      headshotDataUrl = await fileToOptimizedDataUrl(file);
       headshotFilename = file.name;
     }
 

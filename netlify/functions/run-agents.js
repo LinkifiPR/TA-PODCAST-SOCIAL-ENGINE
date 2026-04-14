@@ -319,6 +319,7 @@ async function callOpenRouterImage({ prompt, imageDataUrl }) {
     model: NANO_BANANA_PRO_MODEL,
     messages: [{ role: "user", content }],
     modalities: ["image", "text"],
+    max_tokens: 5,
     stream: false,
   };
 
@@ -362,16 +363,16 @@ async function callOpenRouterImage({ prompt, imageDataUrl }) {
 
   const imageRef = extractOpenRouterImageRef(responsePayload);
   if (imageRef.startsWith("data:image")) {
-    return imageRef;
+    return {
+      dataUrl: imageRef,
+      url: null,
+    };
   }
 
-  const imageResponse = await fetch(imageRef);
-  if (!imageResponse.ok) {
-    throw new Error(`Failed to fetch generated image: ${imageResponse.status}`);
-  }
-  const arrayBuffer = await imageResponse.arrayBuffer();
-  const mimeType = imageResponse.headers.get("content-type") || "image/png";
-  return toDataUrlFromBuffer(Buffer.from(arrayBuffer), mimeType);
+  return {
+    dataUrl: null,
+    url: imageRef,
+  };
 }
 
 async function runTextAgent({ agent, sourceText, videoUrl, request }) {
@@ -489,7 +490,7 @@ async function runThumbnailAgent({
     }
   }
 
-  const imageDataUrl = await callOpenRouterImage({
+  const imageResult = await callOpenRouterImage({
     prompt: imagePrompt,
     imageDataUrl: selectedHeadshotDataUrl,
   });
@@ -520,7 +521,8 @@ async function runThumbnailAgent({
       {
         type: "image",
         filename: `${agent.id}.png`,
-        dataUrl: imageDataUrl,
+        dataUrl: imageResult.dataUrl || undefined,
+        url: imageResult.url || undefined,
       },
     ],
   };
