@@ -125,6 +125,55 @@ function renderResults(results) {
   resultsWrap.appendChild(fragment);
 }
 
+function getAgentLabel(agentId) {
+  const match = availableAgents.find((agent) => agent.id === agentId);
+  return match ? match.name : agentId;
+}
+
+async function parseApiResponse(response) {
+  const raw = await response.text();
+  let payload = null;
+  try {
+    payload = JSON.parse(raw);
+  } catch (_) {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const detail =
+      (payload && (payload.error || payload.message)) ||
+      raw.slice(0, 220) ||
+      "Request failed";
+    throw new Error(`HTTP ${response.status}: ${detail}`);
+  }
+
+  if (!payload || payload.ok !== true) {
+    const detail =
+      (payload && (payload.error || payload.message)) || "Run failed.";
+    throw new Error(detail);
+  }
+
+  return payload;
+}
+
+async function runSingleAgent(payloadBase, agentId) {
+  const response = await fetch("/api/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payloadBase,
+      selectedAgents: [agentId],
+    }),
+  });
+
+  const payload = await parseApiResponse(response);
+  const result = Array.isArray(payload.results) ? payload.results[0] : null;
+  if (!result) {
+    throw new Error(`No result returned for ${agentId}.`);
+  }
+  return result;
+}
+
 async function loadAgents() {
   try {
     const response = await fetch("/api/agents");
@@ -174,29 +223,46 @@ form.addEventListener("submit", async (event) => {
       headshotFilename = file.name;
     }
 
-    const response = await fetch("/api/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        transcript: sourceText,
-        videoUrl,
-        request: requestEl.value.trim(),
-        selectedAgents: chosenAgents,
-        headshotDataUrl,
-        headshotFilename,
-      }),
-    });
+    const payloadBase = {
+      transcript: sourceText,
+      videoUrl,
+      request: requestEl.value.trim(),
+      headshotDataUrl,
+      headshotFilename,
+    };
 
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "Run failed.");
+    const results = [];
+    for (let index = 0; index < chosenAgents.length; index += 1) {
+      const agentId = chosenAgents[index];
+      setStatus(`Running ${index + 1}/${chosenAgents.length}: ${getAgentLabel(agentId)}...`);
+      try {
+        const result = await runSingleAgent(payloadBase, agentId);
+        results.push(result);
+      } catch (err) {
+        results.push({
+          agentId,
+          name: getAgentLabel(agentId),
+          ok: false,
+          error: err.message || "Run failed.",
+          outputText: "",
+          artifacts: [],
+        });
+      }
     }
 
-    renderSummary(payload);
-    renderResults(payload.results || []);
+    const failedAgents = results.filter((result) => !result.ok).length;
+    const summary = {
+      runId: new Date().toISOString().replace(/[:.]/g, "-"),
+      generatedAt: new Date().toISOString(),
+      totalAgents: results.length,
+      failedAgents,
+    };
 
-    if (payload.failedAgents > 0) {
-      setStatus(`Completed with ${payload.failedAgents} failed agent(s).`, true);
+    renderSummary(summary);
+    renderResults(results);
+
+    if (failedAgents > 0) {
+      setStatus(`Completed with ${failedAgents} failed agent(s).`, true);
     } else {
       setStatus("All agents completed successfully.");
     }
