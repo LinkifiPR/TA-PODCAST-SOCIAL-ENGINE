@@ -1,8 +1,52 @@
 const fs = require("fs/promises");
 const path = require("path");
 
-function repoRoot() {
-  return path.resolve(__dirname, "../../..");
+async function fileExists(targetPath) {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function candidateRoots() {
+  const roots = [
+    path.resolve(__dirname, "../../.."),
+    path.resolve(__dirname, "../.."),
+    path.resolve(__dirname, ".."),
+    process.cwd(),
+    process.env.LAMBDA_TASK_ROOT,
+    "/var/task",
+  ].filter(Boolean);
+
+  // Keep order, remove duplicates.
+  const seen = new Set();
+  return roots.filter((root) => {
+    const normalized = path.resolve(root);
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+async function resolveManifestPath(manifestRelPath = "agents/manifest.json") {
+  if (path.isAbsolute(manifestRelPath) && (await fileExists(manifestRelPath))) {
+    return manifestRelPath;
+  }
+
+  const tried = [];
+  for (const root of candidateRoots()) {
+    const candidate = path.resolve(root, manifestRelPath);
+    tried.push(candidate);
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `Manifest not found for '${manifestRelPath}'. Tried: ${tried.join(", ")}`
+  );
 }
 
 async function normalizePromptPath(manifestPath, promptPath) {
@@ -10,18 +54,19 @@ async function normalizePromptPath(manifestPath, promptPath) {
     return promptPath;
   }
 
-  const fromManifestDir = path.resolve(path.dirname(manifestPath), promptPath);
-  const fromRepoRoot = path.resolve(repoRoot(), promptPath);
-  try {
-    await fs.access(fromManifestDir);
+  const manifestDir = path.dirname(manifestPath);
+  const projectRoot = path.resolve(manifestDir, "..");
+  const fromManifestDir = path.resolve(manifestDir, promptPath);
+  const fromProjectRoot = path.resolve(projectRoot, promptPath);
+
+  if (await fileExists(fromManifestDir)) {
     return fromManifestDir;
-  } catch (_) {
-    return fromRepoRoot;
   }
+  return fromProjectRoot;
 }
 
 async function loadManifest(manifestRelPath = "agents/manifest.json") {
-  const manifestPath = path.resolve(repoRoot(), manifestRelPath);
+  const manifestPath = await resolveManifestPath(manifestRelPath);
   const raw = await fs.readFile(manifestPath, "utf8");
   const parsed = JSON.parse(raw);
   if (!parsed || !Array.isArray(parsed.agents)) {
@@ -65,8 +110,9 @@ function filterAgents(allAgents, selectedIds) {
 }
 
 module.exports = {
-  repoRoot,
   loadManifest,
   loadPrompt,
   filterAgents,
+  resolveManifestPath,
+  candidateRoots,
 };
