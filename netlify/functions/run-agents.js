@@ -73,6 +73,9 @@ async function callOpenAI({ model, systemPrompt, userPrompt }) {
     throw new Error("OPENAI_API_KEY is not configured on this environment.");
   }
 
+  const reasoningEffort = process.env.OPENAI_REASONING_EFFORT || "low";
+  const maxOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 2600);
+
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: "POST",
     headers: {
@@ -81,6 +84,8 @@ async function callOpenAI({ model, systemPrompt, userPrompt }) {
     },
     body: JSON.stringify({
       model,
+      reasoning: { effort: reasoningEffort },
+      max_output_tokens: Number.isFinite(maxOutputTokens) ? maxOutputTokens : 2600,
       input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -98,24 +103,6 @@ async function callOpenAI({ model, systemPrompt, userPrompt }) {
     throw new Error("OpenAI returned no text output.");
   }
   return text;
-}
-
-function parseJsonObject(text) {
-  const trimmed = String(text || "").trim();
-
-  try {
-    return JSON.parse(trimmed);
-  } catch (_) {
-    // continue
-  }
-
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("No JSON object found in planner output.");
-  }
-
-  return JSON.parse(trimmed.slice(start, end + 1));
 }
 
 function toDataUrlFromBuffer(buffer, mimeType = "image/png") {
@@ -141,6 +128,76 @@ function pickHeadshotForFormat(formatName, available) {
     if (map.has(wanted)) return map.get(wanted);
   }
   return available[0] || null;
+}
+
+function chooseThumbnailFormat(sourceText, requestText) {
+  const haystack = `${sourceText}\n${requestText}`.toLowerCase();
+  if (/\b(review|rating|worth it|price)\b/.test(haystack)) {
+    return ["REVIEW", "The content leans on value judgement and recommendation signals."];
+  }
+  if (/\b(vs|versus|compared|compare|difference)\b/.test(haystack)) {
+    return ["CONTRAST", "The topic frames a clear side-by-side visibility gap."];
+  }
+  if (/\b(mistake|wrong|stop|avoid|kill|invisible)\b/.test(haystack)) {
+    return ["DON'T DO THIS", "The transcript highlights costly mistakes and exclusion risk."];
+  }
+  if (/\b(shock|surpris|sudden|hidden|nobody knows)\b/.test(haystack)) {
+    return ["DRAMATIC FACE", "The strongest angle is a reveal that should feel immediate and emotional."];
+  }
+  return ["ACCUSATION", "The message is a direct wake-up call about AI visibility risk."];
+}
+
+function inferTopicPhrase(sourceText) {
+  const cleaned = String(sourceText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "AI visibility in search";
+  return cleaned.slice(0, 120);
+}
+
+function buildThumbnailPlan({ sourceText, request, hasUploadedHeadshot, availableHeadshots }) {
+  const [formatName, formatReason] = chooseThumbnailFormat(sourceText, request);
+  const includeHeadshot = hasUploadedHeadshot || formatName !== "CONTRAST";
+  const recommendedHeadshot = includeHeadshot
+    ? pickHeadshotForFormat(formatName, availableHeadshots)
+    : null;
+
+  const overlayByFormat = {
+    "DON'T DO THIS": "AI IGNORES YOU",
+    "DRAMATIC FACE": "INVISIBLE TO AI",
+    REVIEW: "WORTH IT?",
+    CONTRAST: "GOOGLE VS AI",
+    ACCUSATION: "YOU'RE MISSING OUT",
+  };
+  const textOverlay = overlayByFormat[formatName] || "AI VISIBILITY GAP";
+
+  const topicPhrase = inferTopicPhrase(sourceText);
+  const subjectLine = includeHeadshot
+    ? "hyper-stylised portrait of the host with a confident, high-contrast expression"
+    : "single striking visual metaphor for AI visibility and search exclusion";
+
+  const imagePrompt = [
+    `${formatName} style YouTube thumbnail composition`,
+    subjectLine,
+    `topic emphasis: ${topicPhrase}`,
+    "dark charcoal to deep navy gradient background",
+    "cinematic directional lighting with sharp subject separation",
+    "vivid orange (#F97315) rim light and glow accents as dominant visual signature",
+    `bold high-contrast text overlay "${textOverlay}"`,
+    "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
+  ].join(", ");
+
+  return {
+    formatName,
+    formatReason,
+    includeHeadshot,
+    recommendedHeadshot,
+    headshotReason: includeHeadshot
+      ? "Human expression amplifies urgency and click intent for this format."
+      : "This format performs better with a clean concept-led visual.",
+    textOverlay,
+    imagePrompt,
+  };
 }
 
 async function listHeadshots(headshotsDir) {
@@ -288,43 +345,21 @@ async function runThumbnailAgent({
   headshotDataUrl,
   headshotFilename,
 }) {
-  const systemPrompt = await loadPrompt(agent.promptPath);
   const headshotsDir = process.env.HEADSHOTS_DIR || "/Users/chrispanteli/Documents/YT HEADSHOTS";
   const availableHeadshots = await listHeadshots(headshotsDir);
 
-  const plannerUserPrompt = [
-    buildUserPrompt(sourceText, videoUrl, request),
-    "",
-    "AUTOMATION MODE REQUIREMENTS:",
-    "- Do not ask follow-up questions.",
-    "- Choose one thumbnail format automatically from the 15 listed options.",
-    "- If the selected format benefits from a headshot and one is available, choose one.",
-    "- Return ONLY valid JSON with this exact schema:",
-    '{"format_name":"...","format_reason":"...","include_headshot":true,"recommended_headshot":"filename-or-null","headshot_reason":"...","text_overlay":"up to 4 words or empty string","image_prompt":"detailed final generation prompt"}',
-    "- Ensure image_prompt includes 1280x720 composition and professional art direction.",
-    `- Available local headshots: ${availableHeadshots.length ? availableHeadshots.join(", ") : "none available"}`,
-    `- Uploaded headshot available: ${headshotDataUrl ? "yes" : "no"}`,
-    "- If no headshot should be used, set include_headshot to false and recommended_headshot to null.",
-  ].join("\n");
-
-  const plannerRaw = await callOpenAI({
-    model: agent.model,
-    systemPrompt,
-    userPrompt: plannerUserPrompt,
+  const plan = buildThumbnailPlan({
+    sourceText,
+    request,
+    hasUploadedHeadshot: Boolean(headshotDataUrl),
+    availableHeadshots,
   });
-  const plan = parseJsonObject(plannerRaw);
 
-  const formatName = String(plan.format_name || "Unknown");
-  const formatReason = String(plan.format_reason || "No reason provided.");
-  const headshotReason = String(plan.headshot_reason || "");
-  const textOverlay = String(plan.text_overlay || "");
-  let imagePrompt = String(plan.image_prompt || "").trim();
-  if (!imagePrompt) {
-    throw new Error("Thumbnail planner returned empty image_prompt.");
-  }
-  if (!imagePrompt.toLowerCase().includes("1280x720")) {
-    imagePrompt += ", 1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction";
-  }
+  const formatName = plan.formatName;
+  const formatReason = plan.formatReason;
+  const headshotReason = plan.headshotReason;
+  const textOverlay = plan.textOverlay;
+  const imagePrompt = plan.imagePrompt;
 
   let selectedHeadshot = null;
   let selectedHeadshotDataUrl = null;
@@ -333,9 +368,9 @@ async function runThumbnailAgent({
     selectedHeadshot = headshotFilename || "uploaded-headshot";
     selectedHeadshotDataUrl = headshotDataUrl;
   } else {
-    const includeHeadshot = plan.include_headshot === true || String(plan.include_headshot).toLowerCase() === "true";
+    const includeHeadshot = plan.includeHeadshot === true;
     if (includeHeadshot && availableHeadshots.length) {
-      const recommended = String(plan.recommended_headshot || "").trim();
+      const recommended = String(plan.recommendedHeadshot || "").trim();
       const chosen =
         (recommended && availableHeadshots.includes(recommended) && recommended) ||
         pickHeadshotForFormat(formatName, availableHeadshots);

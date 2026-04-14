@@ -4,7 +4,7 @@
       "id": "yt-intro-title-description",
       "name": "YouTube Intro Hook, Title & Description Generator (Total Authority - V2)",
       "enabled": true,
-      "model": "gpt-5.4",
+      "model": "gpt-5.4-mini",
       "executor": "text",
       "prompt_path": "skills/yt-intro-title-description/prompt.md"
     },
@@ -20,7 +20,7 @@
       "id": "social-post-generator",
       "name": "Social Media Post Generator - Total Authority",
       "enabled": true,
-      "model": "gpt-5.4",
+      "model": "gpt-5.4-mini",
       "executor": "text",
       "prompt_path": "skills/social-post-generator/prompt.md"
     }
