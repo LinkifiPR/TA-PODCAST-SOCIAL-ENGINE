@@ -1,30 +1,35 @@
 # TA Podcast Social Engine
 
-This repo turns long-form transcript workflows into reusable, independently runnable AI agents.
+This repo turns transcript workflows into independent AI agents that run in parallel and ship outputs in one bundle.
 
-## What is set up now
+## Included Agents
 
-- A registry for agents: `agents/manifest.json`
-- Your first agent prompt:
-  - `skills/yt-intro-title-description/prompt.md`
-- A workflow runner:
-  - `scripts/run_agents.py`
+- `yt-intro-title-description` (text output)
+- `yt-thumbnail-generator` (text plan + generated thumbnail image)
 
-The runner lets you provide one transcript (or topic brief), execute agents in parallel, and collect:
+Agent registry: `agents/manifest.json`
 
-- One output file per agent
-- A combined output bundle
-- A machine-readable run summary
+## One-Time API Key Setup
 
-## Quick start
-
-1. Export your API key:
+Save keys once so you never re-enter them:
 
 ```bash
-export OPENAI_API_KEY="your_api_key_here"
+bash scripts/save_api_keys.sh \
+  --openai-key "YOUR_OPENAI_KEY" \
+  --openrouter-key "YOUR_OPENROUTER_KEY" \
+  --scope both
 ```
 
-2. Run all enabled agents on a transcript:
+What this does:
+
+- Saves keys in project `.env`
+- Saves exports to `~/.zshrc`
+
+The runner auto-loads `.env` each run.
+
+## Run The Workflow
+
+Transcript input:
 
 ```bash
 python3 scripts/run_agents.py \
@@ -32,38 +37,44 @@ python3 scripts/run_agents.py \
   --video-url "https://youtube.com/watch?v=YOUR_VIDEO_ID"
 ```
 
-3. Outputs are written to:
+Topic-only input:
 
-```text
-runs/YYYYMMDD-HHMMSS/
+```bash
+python3 scripts/run_agents.py \
+  --topic "How AI search is reshaping discoverability"
 ```
 
-With files like:
+## Important Defaults
 
-- `yt-intro-title-description.md`
-- `combined.md`
-- `run_summary.json`
+- Auto-push is ON by default (`--auto-push`)
+- Disable with `--no-auto-push`
+- Outputs are written to `runs/YYYYMMDD-HHMMSS/`
+- Auto-push stages and commits the run folder, then pushes to current branch
 
-## Add another skill agent
+## Thumbnail Agent Notes
 
-1. Create a new prompt file under `skills/<agent-id>/prompt.md`
-2. Add an entry in `agents/manifest.json`
-3. Run the same command again
+- Uses `OPENROUTER_API_KEY`
+- Generation script: `skills/yt-thumbnail-generator/scripts/generate_thumbnail.py`
+- Default headshots dir: `/Users/chrispanteli/Documents/YT HEADSHOTS`
+- Force a headshot with:
 
-No runner changes are required unless you want custom behavior per agent.
+```bash
+python3 scripts/run_agents.py \
+  --transcript-file /absolute/path/to/transcript.txt \
+  --headshot pointing.png
+```
 
-## Command options
+## Common Options
 
 ```bash
 python3 scripts/run_agents.py --help
 ```
 
-Key options:
+Useful flags:
 
-- `--transcript-file` path to transcript text
-- `--topic` short brief if no transcript exists yet
-- `--video-url` URL inserted into the prompt context (`[VIDEO_URL]` default)
-- `--request` extra instruction (example: `"Generate only section 2 titles"`)
-- `--agents` comma-separated agent ids to run (default: all enabled)
-- `--max-workers` parallel worker count (default: 4)
-- `--dry-run` skip API calls and write compiled prompt previews
+- `--agents yt-intro-title-description,yt-thumbnail-generator`
+- `--request "Generate only section 2 titles"`
+- `--dry-run`
+- `--max-workers 4`
+- `--headshots-dir "/custom/headshot/path"`
+- `--no-auto-push`

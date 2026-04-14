@@ -5,7 +5,16 @@
       "name": "YouTube Intro Hook, Title & Description Generator (Total Authority - V2)",
       "enabled": true,
       "model": "gpt-5.4",
+      "executor": "text",
       "prompt_path": "skills/yt-intro-title-description/prompt.md"
+    },
+    {
+      "id": "yt-thumbnail-generator",
+      "name": "YouTube Thumbnail Generator",
+      "enabled": true,
+      "model": "gpt-5.4",
+      "executor": "thumbnail",
+      "prompt_path": "skills/yt-thumbnail-generator/prompt.md"
     }
   ]
 }
