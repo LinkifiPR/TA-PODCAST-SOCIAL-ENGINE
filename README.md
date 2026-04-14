@@ -1,17 +1,59 @@
 # TA Podcast Social Engine
 
-This repo turns transcript workflows into independent AI agents that run in parallel and ship outputs in one bundle.
+Transcript-in, multi-agent content engine for Total Authority.
 
-## Included Agents
+## What You Have Now
 
-- `yt-intro-title-description` (text output)
-- `yt-thumbnail-generator` (text plan + generated thumbnail image)
+- Netlify UI to paste transcript and run agents: `app/`
+- Netlify serverless API orchestration: `netlify/functions/`
+- Agent registry: `agents/manifest.json`
+- Skill prompts:
+  - `skills/yt-intro-title-description/prompt.md`
+  - `skills/yt-thumbnail-generator/prompt.md`
 
-Agent registry: `agents/manifest.json`
+## Deploy To Netlify
 
-## One-Time API Key Setup
+1. Push this repo to GitHub.
+2. In Netlify, import the repo as a new site.
+3. Build settings are already in `netlify.toml`:
+   - Publish directory: `app`
+   - Functions directory: `netlify/functions`
+4. Set these Netlify environment variables:
+   - `OPENAI_API_KEY`
+   - `OPENROUTER_API_KEY`
+   - Thumbnail model is fixed to `google/gemini-3-pro-image-preview` (Nano Banana Pro)
+   - Optional (local/server environments with filesystem access): `HEADSHOTS_DIR`
 
-Save keys once so you never re-enter them:
+After deploy, open the site URL and run the workflow from the UI.
+
+## UI Workflow
+
+1. Paste transcript (or topic) into the input.
+2. Optionally add video URL and run instruction.
+3. Optionally upload a headshot image for thumbnail generation.
+4. Select agents.
+5. Click `Run Agents`.
+
+You get:
+
+- One result card per agent
+- Full text outputs
+- Generated thumbnail preview + download (when thumbnail agent runs)
+
+## Add More Skill Agents
+
+1. Add skill prompt file: `skills/<agent-id>/prompt.md`
+2. Add entry to `agents/manifest.json`
+3. For standard text agents, set:
+   - `"executor": "text"`
+4. For image thumbnail pipeline, set:
+   - `"executor": "thumbnail"`
+
+The UI auto-loads enabled agents from `/api/agents`.
+
+## Local API Key Save (Optional)
+
+If you also run local scripts, save keys once:
 
 ```bash
 bash scripts/save_api_keys.sh \
@@ -20,61 +62,11 @@ bash scripts/save_api_keys.sh \
   --scope both
 ```
 
-What this does:
+## Legacy Local Runner (Optional)
 
-- Saves keys in project `.env`
-- Saves exports to `~/.zshrc`
-
-The runner auto-loads `.env` each run.
-
-## Run The Workflow
-
-Transcript input:
+The Python runner still works for local batch runs:
 
 ```bash
 python3 scripts/run_agents.py \
-  --transcript-file /absolute/path/to/transcript.txt \
-  --video-url "https://youtube.com/watch?v=YOUR_VIDEO_ID"
+  --transcript-file /absolute/path/to/transcript.txt
 ```
-
-Topic-only input:
-
-```bash
-python3 scripts/run_agents.py \
-  --topic "How AI search is reshaping discoverability"
-```
-
-## Important Defaults
-
-- Auto-push is ON by default (`--auto-push`)
-- Disable with `--no-auto-push`
-- Outputs are written to `runs/YYYYMMDD-HHMMSS/`
-- Auto-push stages and commits the run folder, then pushes to current branch
-
-## Thumbnail Agent Notes
-
-- Uses `OPENROUTER_API_KEY`
-- Generation script: `skills/yt-thumbnail-generator/scripts/generate_thumbnail.py`
-- Default headshots dir: `/Users/chrispanteli/Documents/YT HEADSHOTS`
-- Force a headshot with:
-
-```bash
-python3 scripts/run_agents.py \
-  --transcript-file /absolute/path/to/transcript.txt \
-  --headshot pointing.png
-```
-
-## Common Options
-
-```bash
-python3 scripts/run_agents.py --help
-```
-
-Useful flags:
-
-- `--agents yt-intro-title-description,yt-thumbnail-generator`
-- `--request "Generate only section 2 titles"`
-- `--dry-run`
-- `--max-workers 4`
-- `--headshots-dir "/custom/headshot/path"`
-- `--no-auto-push`

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+NANO_BANANA_PRO_MODEL = "google/gemini-3-pro-image-preview"
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,11 +24,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--guest-image",
         help="Optional path to a guest/headshot image to condition generation.",
-    )
-    parser.add_argument(
-        "--model",
-        default=os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image-preview"),
-        help="OpenRouter image-capable model.",
     )
     parser.add_argument(
         "--api-key",
@@ -162,7 +158,7 @@ def main() -> int:
         if not guest_image_path.exists() or not guest_image_path.is_file():
             raise RuntimeError(f"Guest image not found: {guest_image_path}")
 
-    payload = build_payload(args.prompt, args.model, guest_image_path)
+    payload = build_payload(args.prompt, NANO_BANANA_PRO_MODEL, guest_image_path)
 
     try:
         response = post_openrouter(payload, api_key)

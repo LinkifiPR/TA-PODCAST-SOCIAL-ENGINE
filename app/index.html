@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TA Podcast Social Engine</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer"></div>
+    <main class="container">
+      <header class="hero">
+        <p class="eyebrow">Total Authority Workflow</p>
+        <h1>Podcast Transcript To Full Content Pack</h1>
+        <p class="subtitle">
+          Paste one transcript. Run every agent. Get polished output plus thumbnail generation in one flow.
+        </p>
+      </header>
+
+      <section class="panel form-panel">
+        <form id="run-form">
+          <label for="sourceText">Transcript Or Topic</label>
+          <textarea
+            id="sourceText"
+            name="sourceText"
+            rows="12"
+            placeholder="Paste full transcript here (or a topic brief)..."
+            required
+          ></textarea>
+
+          <div class="grid two">
+            <div>
+              <label for="videoUrl">Video URL (Optional)</label>
+              <input
+                id="videoUrl"
+                name="videoUrl"
+                type="url"
+                placeholder="https://youtube.com/watch?v=..."
+              />
+            </div>
+            <div>
+              <label for="request">Run Instruction</label>
+              <input
+                id="request"
+                name="request"
+                type="text"
+                value="Generate all sections unless explicitly told otherwise."
+              />
+            </div>
+          </div>
+
+          <div class="grid two">
+            <div>
+              <label for="headshotFile">Optional Headshot Upload (Thumbnail Agent)</label>
+              <input id="headshotFile" name="headshotFile" type="file" accept="image/*" />
+              <p class="field-note">
+                If uploaded, the thumbnail agent uses this image as the headshot source.
+              </p>
+            </div>
+            <div>
+              <label>Agents To Run</label>
+              <div id="agentsList" class="agents-list"></div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="runButton" type="submit">Run Agents</button>
+            <p id="statusText" class="status-text"></p>
+          </div>
+        </form>
+      </section>
+
+      <section id="resultSummary" class="panel summary-panel hidden"></section>
+      <section id="results" class="results-grid"></section>
+    </main>
+
+    <template id="resultCardTemplate">
+      <article class="panel result-card">
+        <header class="result-head">
+          <h2 class="result-title"></h2>
+          <span class="result-pill"></span>
+        </header>
+        <div class="result-body">
+          <pre class="output-text"></pre>
+          <div class="artifact-wrap"></div>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

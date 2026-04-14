@@ -1,0 +1,16 @@
+[build]
+  publish = "app"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[redirects]]
+  from = "/api/agents"
+  to = "/.netlify/functions/agents"
+  status = 200
+
+[[redirects]]
+  from = "/api/run"
+  to = "/.netlify/functions/run-agents"
+  status = 200
