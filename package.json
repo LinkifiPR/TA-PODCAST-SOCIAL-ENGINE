@@ -1,0 +1,20 @@
+{
+  "name": "ta-podcast-social-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Transcript-in, multi-agent content engine for Total Authority.",
+  "scripts": {
+    "check": "node --check app/app.js && node --check netlify/functions/run-agents.js && node --check netlify/functions/thumbnail-options.js && node --check netlify/functions/thumbnail-job.js && node --check netlify/functions/thumbnail-job-background.js && node --check netlify/functions/lib/thumbnail.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LinkifiPR/TA-PODCAST-SOCIAL-ENGINE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.4"
+  }
+}

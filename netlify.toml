@@ -22,3 +22,8 @@
   from = "/api/thumbnail-options"
   to = "/.netlify/functions/thumbnail-options"
   status = 200
+
+[[redirects]]
+  from = "/api/thumbnail-job"
+  to = "/.netlify/functions/thumbnail-job"
+  status = 200

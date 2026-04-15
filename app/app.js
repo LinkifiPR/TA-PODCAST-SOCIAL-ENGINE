@@ -18,10 +18,16 @@ const resultCardTemplate = document.getElementById("resultCardTemplate");
 let availableAgents = [];
 let thumbnailOptions = null;
 let thumbnailOptionsTimer = null;
+const THUMBNAIL_POLL_INTERVAL_MS = 2500;
+const THUMBNAIL_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 
 function setStatus(message, isError = false) {
   statusText.textContent = message;
   statusText.style.color = isError ? "var(--err)" : "var(--muted)";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fileToDataUrl(file) {
@@ -345,6 +351,10 @@ async function parseApiResponse(response) {
 }
 
 async function runSingleAgent(payloadBase, agentId) {
+  if (agentId === "yt-thumbnail-generator") {
+    return runThumbnailJob(payloadBase);
+  }
+
   const response = await fetch("/api/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -362,6 +372,53 @@ async function runSingleAgent(payloadBase, agentId) {
     throw new Error(`No result returned for ${agentId}.`);
   }
   return result;
+}
+
+async function runThumbnailJob(payloadBase) {
+  const startResponse = await fetch("/api/thumbnail-job", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payloadBase),
+  });
+
+  const startPayload = await parseApiResponse(startResponse);
+  const jobId = String(startPayload.jobId || "").trim();
+  if (!jobId) {
+    throw new Error("Thumbnail job did not return an id.");
+  }
+
+  const deadline = Date.now() + THUMBNAIL_POLL_TIMEOUT_MS;
+  let status = String(startPayload.status || "queued");
+  setStatus("Thumbnail queued. Generating in background...");
+
+  while (Date.now() < deadline) {
+    await sleep(THUMBNAIL_POLL_INTERVAL_MS);
+    const pollResponse = await fetch(
+      `/api/thumbnail-job?jobId=${encodeURIComponent(jobId)}`,
+      {
+        headers: { "Cache-Control": "no-store" },
+      }
+    );
+    const pollPayload = await parseApiResponse(pollResponse);
+    status = String(pollPayload.status || "queued");
+
+    if (status === "completed") {
+      if (!pollPayload.result || pollPayload.result.ok !== true) {
+        throw new Error("Thumbnail job completed without a valid result.");
+      }
+      return pollPayload.result;
+    }
+
+    if (status === "failed") {
+      throw new Error(pollPayload.error || "Thumbnail generation failed.");
+    }
+
+    setStatus("Generating thumbnail in background...");
+  }
+
+  throw new Error(
+    "Thumbnail generation is still running in the background. Wait a moment and run the thumbnail again if needed."
+  );
 }
 
 async function loadAgents() {
