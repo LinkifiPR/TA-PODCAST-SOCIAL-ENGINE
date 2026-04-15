@@ -1,6 +1,7 @@
 const { loadPrompt } = require("./agents");
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const ALLOWED_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh"]);
 
 function buildUserPrompt(sourceText, videoUrl, request) {
   return [
@@ -43,13 +44,23 @@ function extractResponsesText(payload) {
   return chunks.join("\n").trim();
 }
 
+function normalizeReasoningEffort(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "low";
+  if (raw === "minimal") return "low";
+  if (ALLOWED_REASONING_EFFORTS.has(raw)) return raw;
+  return "low";
+}
+
 async function callOpenAI({ model, systemPrompt, userPrompt, maxOutputTokens }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured on this environment.");
   }
 
-  const reasoningEffort = process.env.OPENAI_REASONING_EFFORT || "minimal";
+  const reasoningEffort = normalizeReasoningEffort(
+    process.env.OPENAI_REASONING_EFFORT
+  );
   const tokens = Number(
     maxOutputTokens || process.env.OPENAI_MAX_OUTPUT_TOKENS || 2200
   );

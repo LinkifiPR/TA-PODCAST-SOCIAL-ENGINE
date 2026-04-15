@@ -17,6 +17,7 @@ loadEnvFile();
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const NANO_BANANA_PRO_MODEL = "google/gemini-3-pro-image-preview";
+const ALLOWED_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh"]);
 
 function json(statusCode, body) {
   return {
@@ -72,13 +73,23 @@ function extractResponsesText(payload) {
   return chunks.join("\n").trim();
 }
 
+function normalizeReasoningEffort(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "low";
+  if (raw === "minimal") return "low";
+  if (ALLOWED_REASONING_EFFORTS.has(raw)) return raw;
+  return "low";
+}
+
 async function callOpenAI({ model, systemPrompt, userPrompt }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured on this environment.");
   }
 
-  const reasoningEffort = process.env.OPENAI_REASONING_EFFORT || "low";
+  const reasoningEffort = normalizeReasoningEffort(
+    process.env.OPENAI_REASONING_EFFORT
+  );
   const maxOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 2600);
 
   const response = await fetch(OPENAI_RESPONSES_URL, {
@@ -238,18 +249,36 @@ function extractOpenRouterImageRef(payload) {
   for (const choice of choices) {
     const message = choice?.message || {};
 
+    if (message?.image_url?.url) return message.image_url.url;
+    if (typeof message?.image_url === "string") return message.image_url;
+    if (typeof message?.url === "string") return message.url;
+
     if (Array.isArray(message.images)) {
       for (const img of message.images) {
         if (img?.image_url?.url) return img.image_url.url;
         if (img?.imageUrl?.url) return img.imageUrl.url;
+        if (typeof img?.image_url === "string") return img.image_url;
+        if (typeof img?.b64_json === "string") return `data:image/png;base64,${img.b64_json}`;
         if (typeof img?.url === "string") return img.url;
       }
+    }
+
+    if (typeof message.content === "string" && message.content) {
+      const dataUrlMatch = message.content.match(
+        /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/
+      );
+      if (dataUrlMatch?.[0]) return dataUrlMatch[0];
+
+      const urlMatch = message.content.match(/https?:\/\/\S+/);
+      if (urlMatch?.[0]) return urlMatch[0];
     }
 
     if (Array.isArray(message.content)) {
       for (const part of message.content) {
         if (part?.image_url?.url) return part.image_url.url;
         if (typeof part?.image_url === "string") return part.image_url;
+        if (typeof part?.b64_json === "string") return `data:image/png;base64,${part.b64_json}`;
+        if (typeof part?.url === "string" && /^https?:\/\//.test(part.url)) return part.url;
         if ((part?.type === "image_url" || part?.type === "output_image") && typeof part?.url === "string") {
           return part.url;
         }
@@ -277,15 +306,21 @@ async function callOpenRouterImage({ prompt, imageDataUrl }) {
     content.push({ type: "image_url", image_url: { url: imageDataUrl } });
   }
 
-  const payload = {
-    model: NANO_BANANA_PRO_MODEL,
-    messages: [{ role: "user", content }],
-    modalities: ["image", "text"],
-    max_tokens: 5,
-    stream: false,
-  };
+  const requestedTokenCap = Number(process.env.OPENROUTER_IMAGE_MAX_TOKENS || 384);
+  const primaryMaxTokens = Number.isFinite(requestedTokenCap)
+    ? Math.max(128, Math.trunc(requestedTokenCap))
+    : 384;
+  const fallbackMaxTokens = Math.max(primaryMaxTokens, 768);
 
-  const doRequest = async () => {
+  const doRequest = async (maxTokens) => {
+    const payload = {
+      model: NANO_BANANA_PRO_MODEL,
+      messages: [{ role: "user", content }],
+      modalities: ["image", "text"],
+      max_tokens: maxTokens,
+      stream: false,
+    };
+
     const response = await fetch(OPENROUTER_CHAT_URL, {
       method: "POST",
       headers: {
@@ -312,18 +347,31 @@ async function callOpenRouterImage({ prompt, imageDataUrl }) {
     return body;
   };
 
-  let responsePayload;
-  try {
-    responsePayload = await doRequest();
-  } catch (err) {
-    if (!String(err.message || "").startsWith("429")) {
-      throw err;
+  const runWith429Retry = async (maxTokens) => {
+    try {
+      return await doRequest(maxTokens);
+    } catch (err) {
+      if (!String(err.message || "").startsWith("429")) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return doRequest(maxTokens);
     }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    responsePayload = await doRequest();
-  }
+  };
 
-  const imageRef = extractOpenRouterImageRef(responsePayload);
+  let responsePayload;
+  responsePayload = await runWith429Retry(primaryMaxTokens);
+
+  let imageRef;
+  try {
+    imageRef = extractOpenRouterImageRef(responsePayload);
+  } catch (firstErr) {
+    if (fallbackMaxTokens === primaryMaxTokens) {
+      throw firstErr;
+    }
+    responsePayload = await runWith429Retry(fallbackMaxTokens);
+    imageRef = extractOpenRouterImageRef(responsePayload);
+  }
   if (imageRef.startsWith("data:image")) {
     return {
       dataUrl: imageRef,
