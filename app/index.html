@@ -55,8 +55,8 @@
               <label for="headshotFile">Optional Headshot Upload (Thumbnail Agent)</label>
               <input id="headshotFile" name="headshotFile" type="file" accept="image/*" />
               <p class="field-note">
-                If uploaded and you choose "Yes" below, this file overrides the saved headshot library for
-                the current run.
+                If uploaded, this file is used automatically for the thumbnail run and overrides the saved
+                headshot library for this run.
               </p>
             </div>
             <div>
@@ -88,7 +88,7 @@
             </div>
 
             <div class="grid two">
-              <div>
+              <div id="thumbnailHeadshotQuestionWrap">
                 <label>2. Use A Headshot?</label>
                 <div class="inline-options">
                   <label class="inline-option">
@@ -102,9 +102,12 @@
                 </div>
                 <p id="thumbnailHeadshotHint" class="field-note"></p>
               </div>
-              <div class="field-note thumb-note">
+              <div id="thumbnailHeadshotChoiceNote" class="field-note thumb-note">
                 If you select "Yes", the app uses your uploaded image first. Otherwise it automatically
                 chooses the best saved headshot for the selected format.
+              </div>
+              <div id="thumbnailHeadshotAutoWrap" class="field-note thumb-note hidden">
+                Uploaded headshot detected. The thumbnail run will use your uploaded image automatically.
               </div>
             </div>
           </section>

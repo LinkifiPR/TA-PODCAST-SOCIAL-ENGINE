@@ -11,6 +11,15 @@ const thumbnailFormatEl = document.getElementById("thumbnailFormat");
 const thumbnailFormatHintEl = document.getElementById("thumbnailFormatHint");
 const thumbnailOverlayEl = document.getElementById("thumbnailOverlay");
 const thumbnailHeadshotHintEl = document.getElementById("thumbnailHeadshotHint");
+const thumbnailHeadshotQuestionWrapEl = document.getElementById(
+  "thumbnailHeadshotQuestionWrap"
+);
+const thumbnailHeadshotChoiceNoteEl = document.getElementById(
+  "thumbnailHeadshotChoiceNote"
+);
+const thumbnailHeadshotAutoWrapEl = document.getElementById(
+  "thumbnailHeadshotAutoWrap"
+);
 const resultSummary = document.getElementById("resultSummary");
 const resultsWrap = document.getElementById("results");
 const resultCardTemplate = document.getElementById("resultCardTemplate");
@@ -21,6 +30,7 @@ let thumbnailOptionsTimer = null;
 const THUMBNAIL_POLL_INTERVAL_MS = 2500;
 const THUMBNAIL_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 const BACKGROUND_AGENT_IDS = new Set(["yt-intro-title-description"]);
+const MAX_HEADSHOT_UPLOAD_BYTES = 2.25 * 1024 * 1024;
 
 function setStatus(message, isError = false) {
   statusText.textContent = message;
@@ -40,10 +50,27 @@ async function fileToDataUrl(file) {
   });
 }
 
+function estimateDataUrlBytes(dataUrl) {
+  const base64 = String(dataUrl || "").split(",")[1] || "";
+  if (!base64) return 0;
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+function assertHeadshotUploadSize(dataUrl) {
+  const estimatedBytes = estimateDataUrlBytes(dataUrl);
+  if (estimatedBytes <= MAX_HEADSHOT_UPLOAD_BYTES) {
+    return dataUrl;
+  }
+  throw new Error(
+    "Uploaded headshot is too large. Use a JPG/PNG under ~2MB for reliable generation."
+  );
+}
+
 async function fileToOptimizedDataUrl(file) {
-  const fallback = () => fileToDataUrl(file);
+  const originalDataUrl = await fileToDataUrl(file);
+
   try {
-    const originalDataUrl = await fileToDataUrl(file);
     const img = await new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = () => resolve(image);
@@ -51,7 +78,7 @@ async function fileToOptimizedDataUrl(file) {
       image.src = originalDataUrl;
     });
 
-    const maxDimension = 1280;
+    const maxDimension = 1024;
     const scale = Math.min(
       1,
       maxDimension / Math.max(img.width || 1, img.height || 1)
@@ -63,11 +90,23 @@ async function fileToOptimizedDataUrl(file) {
     canvas.width = targetWidth;
     canvas.height = targetHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return fallback();
+    if (!ctx) return assertHeadshotUploadSize(originalDataUrl);
     ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-    return canvas.toDataURL("image/jpeg", 0.9);
-  } catch (_) {
-    return fallback();
+    const qualities = [0.86, 0.76, 0.66];
+    for (const quality of qualities) {
+      const candidate = canvas.toDataURL("image/jpeg", quality);
+      if (estimateDataUrlBytes(candidate) <= MAX_HEADSHOT_UPLOAD_BYTES) {
+        return candidate;
+      }
+    }
+    return assertHeadshotUploadSize(canvas.toDataURL("image/jpeg", 0.6));
+  } catch (err) {
+    if (estimateDataUrlBytes(originalDataUrl) > MAX_HEADSHOT_UPLOAD_BYTES) {
+      throw new Error(
+        "Could not optimize this upload and the original file is too large. Please use a smaller JPG/PNG headshot."
+      );
+    }
+    return assertHeadshotUploadSize(originalDataUrl);
   }
 }
 
@@ -190,15 +229,39 @@ function getAgentLabel(agentId) {
   return match ? match.name : agentId;
 }
 
+function syncHeadshotModeUi() {
+  const yesRadio = document.querySelector(
+    "input[name='thumbnailHeadshotMode'][value='yes']"
+  );
+  const noRadio = document.querySelector(
+    "input[name='thumbnailHeadshotMode'][value='no']"
+  );
+  if (!yesRadio || !noRadio) return;
+
+  const hasUpload = Boolean(headshotFileEl.files?.[0]);
+  if (hasUpload) {
+    yesRadio.checked = true;
+    noRadio.checked = false;
+    thumbnailHeadshotQuestionWrapEl?.classList.add("hidden");
+    thumbnailHeadshotChoiceNoteEl?.classList.add("hidden");
+    thumbnailHeadshotAutoWrapEl?.classList.remove("hidden");
+    return;
+  }
+
+  thumbnailHeadshotQuestionWrapEl?.classList.remove("hidden");
+  thumbnailHeadshotChoiceNoteEl?.classList.remove("hidden");
+  thumbnailHeadshotAutoWrapEl?.classList.add("hidden");
+}
+
 function updateHeadshotHint() {
   const hasUpload = Boolean(headshotFileEl.files?.[0]);
   const selectedMode = document.querySelector(
     "input[name='thumbnailHeadshotMode']:checked"
   );
 
-  if (hasUpload && selectedMode?.value !== "no") {
+  if (hasUpload) {
     thumbnailHeadshotHintEl.textContent =
-      "Your uploaded headshot will be used first if headshots are enabled for this run.";
+      "Uploaded headshot will be used automatically for this run.";
     return;
   }
 
@@ -246,10 +309,15 @@ function renderThumbnailOptions(options) {
   );
 
   const hasUpload = Boolean(headshotFileEl.files?.[0]);
-  const recommendedIncludeHeadshot =
-    hasUpload || options.includeHeadshotRecommended === true;
-  yesRadio.checked = recommendedIncludeHeadshot;
-  noRadio.checked = !recommendedIncludeHeadshot;
+  if (hasUpload) {
+    yesRadio.checked = true;
+    noRadio.checked = false;
+  } else {
+    const recommendedIncludeHeadshot = options.includeHeadshotRecommended === true;
+    yesRadio.checked = recommendedIncludeHeadshot;
+    noRadio.checked = !recommendedIncludeHeadshot;
+  }
+  syncHeadshotModeUi();
   updateHeadshotHint();
 
   thumbnailOverlayEl.value = options.suggestedOverlayText || "";
@@ -290,10 +358,11 @@ async function updateThumbnailSetupVisibility() {
 }
 
 function getThumbnailConfig() {
+  const hasUpload = Boolean(headshotFileEl.files?.[0]);
   const selectedMode = document.querySelector(
     "input[name='thumbnailHeadshotMode']:checked"
   );
-  if (!selectedMode) {
+  if (!hasUpload && !selectedMode) {
     throw new Error("Please answer the thumbnail question: use a headshot or not.");
   }
 
@@ -306,7 +375,7 @@ function getThumbnailConfig() {
 
   return {
     formatName: thumbnailFormatEl.value || thumbnailOptions?.recommendedFormat || "ACCUSATION",
-    includeHeadshot: selectedMode.value === "yes",
+    includeHeadshot: hasUpload ? true : selectedMode.value === "yes",
     autoHeadshot: thumbnailOptions?.recommendedHeadshot || "",
     textOverlay: overlay,
   };
@@ -352,21 +421,25 @@ async function parseApiResponse(response) {
 }
 
 async function runSingleAgent(payloadBase, agentId) {
+  const textPayloadBase = {
+    transcript: payloadBase.transcript,
+    videoUrl: payloadBase.videoUrl,
+    request: payloadBase.request,
+  };
+
   if (agentId === "yt-thumbnail-generator") {
     return runThumbnailJob(payloadBase);
   }
   if (BACKGROUND_AGENT_IDS.has(agentId)) {
-    return runAgentJob(payloadBase, agentId);
+    return runAgentJob(textPayloadBase, agentId);
   }
 
   const response = await fetch("/api/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ...payloadBase,
+      ...textPayloadBase,
       selectedAgents: [agentId],
-      thumbnailConfig:
-        agentId === "yt-thumbnail-generator" ? payloadBase.thumbnailConfig : undefined,
     }),
   });
 
@@ -596,6 +669,8 @@ requestEl.addEventListener("blur", queueThumbnailRefresh);
 requestEl.addEventListener("input", queueThumbnailRefresh);
 
 headshotFileEl.addEventListener("change", () => {
+  syncHeadshotModeUi();
+  updateHeadshotHint();
   if (isThumbnailSelected() && thumbnailOptions) {
     renderThumbnailOptions(thumbnailOptions);
   }
@@ -606,4 +681,5 @@ document
   .querySelectorAll("input[name='thumbnailHeadshotMode']")
   .forEach((input) => input.addEventListener("change", updateHeadshotHint));
 
+syncHeadshotModeUi();
 loadAgents();

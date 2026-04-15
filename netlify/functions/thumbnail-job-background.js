@@ -39,8 +39,22 @@ exports.handler = async (event) => {
     });
   };
 
+  const cleanupInput = async (inputKey) => {
+    if (!inputKey) return;
+    try {
+      await store.delete(inputKey);
+    } catch (_) {
+      // best effort cleanup
+    }
+  };
+
   try {
-    const sourceText = String(body.transcript || body.topic || "").trim();
+    const existingJob = (await store.get(jobId, { type: "json" })) || {};
+    const inputKey = String(existingJob.inputKey || "").trim();
+    const storedInput = inputKey ? await store.get(inputKey, { type: "json" }) : null;
+    const input = storedInput && typeof storedInput === "object" ? storedInput : body;
+
+    const sourceText = String(input.transcript || input.topic || "").trim();
     if (!sourceText) {
       throw new Error("Provide transcript text or topic.");
     }
@@ -49,14 +63,16 @@ exports.handler = async (event) => {
 
     const result = await generateThumbnailResult({
       sourceText,
-      request: String(body.request || "Generate all sections unless explicitly told otherwise."),
+      request: String(
+        input.request || "Generate all sections unless explicitly told otherwise."
+      ),
       headshotDataUrl:
-        typeof body.headshotDataUrl === "string" ? body.headshotDataUrl : null,
+        typeof input.headshotDataUrl === "string" ? input.headshotDataUrl : null,
       headshotFilename:
-        typeof body.headshotFilename === "string" ? body.headshotFilename : null,
+        typeof input.headshotFilename === "string" ? input.headshotFilename : null,
       thumbnailConfig:
-        body.thumbnailConfig && typeof body.thumbnailConfig === "object"
-          ? body.thumbnailConfig
+        input.thumbnailConfig && typeof input.thumbnailConfig === "object"
+          ? input.thumbnailConfig
           : null,
     });
 
@@ -65,11 +81,17 @@ exports.handler = async (event) => {
       completedAt: new Date().toISOString(),
       result,
     });
+
+    await cleanupInput(inputKey);
   } catch (err) {
     await mark({
       status: "failed",
       completedAt: new Date().toISOString(),
       error: err.message || "Thumbnail generation failed.",
     });
+
+    const existingJob = (await store.get(jobId, { type: "json" })) || {};
+    const inputKey = String(existingJob.inputKey || "").trim();
+    await cleanupInput(inputKey);
   }
 };

@@ -4,6 +4,7 @@ const { loadEnvFile } = require("./lib/env");
 loadEnvFile();
 
 const THUMBNAIL_JOB_STORE = "thumbnail-jobs";
+const THUMBNAIL_JOB_INPUT_SUFFIX = ":input";
 
 function json(statusCode, body) {
   return {
@@ -62,6 +63,10 @@ async function getJobStore(event) {
   return getStore(THUMBNAIL_JOB_STORE);
 }
 
+function getInputKey(jobId) {
+  return `${jobId}${THUMBNAIL_JOB_INPUT_SUFFIX}`;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return json(200, { ok: true });
@@ -84,10 +89,12 @@ exports.handler = async (event) => {
         return json(404, { ok: false, error: "Thumbnail job not found." });
       }
 
+      const { inputKey: _ignoredInputKey, ...publicJob } = job;
+
       return json(200, {
         ok: true,
         jobId,
-        ...job,
+        ...publicJob,
       });
     }
 
@@ -104,11 +111,29 @@ exports.handler = async (event) => {
     }
 
     const jobId = crypto.randomUUID();
+    const inputKey = getInputKey(jobId);
     const createdAt = new Date().toISOString();
+
+    await store.setJSON(inputKey, {
+      transcript,
+      topic,
+      videoUrl: body.videoUrl || "[VIDEO_URL]",
+      request: body.request || "Generate all sections unless explicitly told otherwise.",
+      headshotDataUrl:
+        typeof body.headshotDataUrl === "string" ? body.headshotDataUrl : null,
+      headshotFilename:
+        typeof body.headshotFilename === "string" ? body.headshotFilename : null,
+      thumbnailConfig:
+        body.thumbnailConfig && typeof body.thumbnailConfig === "object"
+          ? body.thumbnailConfig
+          : null,
+    });
+
     await store.setJSON(jobId, {
       status: "queued",
       createdAt,
       updatedAt: createdAt,
+      inputKey,
     });
 
     const backgroundUrl = `${getBaseUrl(event)}/.netlify/functions/thumbnail-job-background`;
@@ -117,18 +142,6 @@ exports.handler = async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jobId,
-        transcript,
-        topic,
-        videoUrl: body.videoUrl || "[VIDEO_URL]",
-        request: body.request || "Generate all sections unless explicitly told otherwise.",
-        headshotDataUrl:
-          typeof body.headshotDataUrl === "string" ? body.headshotDataUrl : null,
-        headshotFilename:
-          typeof body.headshotFilename === "string" ? body.headshotFilename : null,
-        thumbnailConfig:
-          body.thumbnailConfig && typeof body.thumbnailConfig === "object"
-            ? body.thumbnailConfig
-            : null,
       }),
     });
 
@@ -139,6 +152,11 @@ exports.handler = async (event) => {
         updatedAt: new Date().toISOString(),
         error: `Failed to start background thumbnail job (HTTP ${invokeResponse.status}).`,
       });
+      try {
+        await store.delete(inputKey);
+      } catch (_) {
+        // ignore cleanup failures
+      }
       return json(500, {
         ok: false,
         error: "Could not start thumbnail generation.",
