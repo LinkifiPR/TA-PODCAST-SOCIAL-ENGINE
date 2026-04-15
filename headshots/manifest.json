@@ -1,0 +1,52 @@
+{
+  "headshots": [
+    {
+      "id": "confident",
+      "filename": "confident.png",
+      "label": "Confident",
+      "aliases": ["confident", "confident.png"],
+      "description": "Confident, professional, direct gaze with folded arms for authority-led thumbnails.",
+      "bestFormats": ["TITLE HEAD", "CONVERSATION QUESTION", "CONFLICT", "CONTRAST"]
+    },
+    {
+      "id": "disappointed",
+      "filename": "disappointed.png",
+      "label": "Disappointed",
+      "aliases": ["disappointed", "disappointed.png", "Disappointed.png"],
+      "description": "Disappointed, critical, unimpressed reaction for warning-led or problem-led hooks.",
+      "bestFormats": ["PROBLEM STATE", "DON'T DO THIS", "ACCUSATION", "COMMENT / POST"]
+    },
+    {
+      "id": "pointing",
+      "filename": "pointing.png",
+      "label": "Pointing",
+      "aliases": ["pointing", "pointing.png", "Pointing.png"],
+      "description": "Pointing pose that naturally directs attention toward text, arrows, or the other side of a contrast.",
+      "bestFormats": ["TITLE HEAD", "A AFFECTS B", "CONTRAST", "DON'T DO THIS", "MOTION ARROW", "ACCUSATION"]
+    },
+    {
+      "id": "shocked",
+      "filename": "shocked.png",
+      "label": "Shocked",
+      "aliases": ["shocked", "shocked.png"],
+      "description": "Wide-eyed hands-on-head shock for dramatic reveals and strong problem framing.",
+      "bestFormats": ["DRAMATIC FACE", "PROBLEM STATE", "REVIEW", "COMMENT / POST"]
+    },
+    {
+      "id": "surprised",
+      "filename": "surprised.png",
+      "label": "Surprised",
+      "aliases": ["surprised", "surprised.png"],
+      "description": "Surprised hand-over-mouth reaction for curiosity-heavy or verdict-driven thumbnails.",
+      "bestFormats": ["DRAMATIC FACE", "A AFFECTS B", "CONTRAST", "REVIEW", "COMMENT / POST"]
+    },
+    {
+      "id": "complete-shock",
+      "filename": "complete-shock.png",
+      "label": "Complete Shock",
+      "aliases": ["complete-shock", "complete shock", "complete-shock.png", "complete shock.png"],
+      "description": "Full-body extreme shock pose that works when the thumbnail needs maximum emotional intensity.",
+      "bestFormats": ["DRAMATIC FACE", "PROBLEM STATE", "REVIEW", "COMMENT / POST"]
+    }
+  ]
+}

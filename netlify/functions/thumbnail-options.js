@@ -1,5 +1,10 @@
-const fs = require("fs/promises");
 const { loadEnvFile } = require("./lib/env");
+const {
+  formatHeadshotLibraryForPrompt,
+  listAvailableHeadshots,
+  pickHeadshotForFormat,
+  resolveHeadshotName,
+} = require("./lib/headshots");
 
 loadEnvFile();
 
@@ -23,14 +28,6 @@ const ALL_FORMATS = [
   "REVIEW",
 ];
 
-const DEFAULT_HEADSHOT_CHOICES = [
-  "confident.png",
-  "Disappointed.png",
-  "Pointing.png",
-  "shocked.png",
-  "surprised.png",
-];
-
 function json(statusCode, body) {
   return {
     statusCode,
@@ -42,24 +39,6 @@ function json(statusCode, body) {
     },
     body: JSON.stringify(body),
   };
-}
-
-function normalizeHeadshotName(name) {
-  const lower = String(name || "").trim().toLowerCase();
-  if (!lower) return "";
-  const canonicalMap = {
-    "confident": "confident.png",
-    "confident.png": "confident.png",
-    "disappointed": "Disappointed.png",
-    "disappointed.png": "Disappointed.png",
-    "pointing": "Pointing.png",
-    "pointing.png": "Pointing.png",
-    "shocked": "shocked.png",
-    "shocked.png": "shocked.png",
-    "surprised": "surprised.png",
-    "surprised.png": "surprised.png",
-  };
-  return canonicalMap[lower] || name;
 }
 
 function formatHeadshotFit(formatName) {
@@ -100,7 +79,7 @@ function sanitizeFormatName(name) {
   return "ACCUSATION";
 }
 
-function fallbackRecommendation(sourceText) {
+function fallbackRecommendation(sourceText, availableHeadshots) {
   const haystack = String(sourceText || "").toLowerCase();
 
   let recommendedFormat = "ACCUSATION";
@@ -117,35 +96,20 @@ function fallbackRecommendation(sourceText) {
     recommendedReason = "Mistake framing triggers loss aversion and strong click intent.";
   }
 
-  let recommendedHeadshot = "confident.png";
-  if (recommendedFormat === "DRAMATIC FACE") recommendedHeadshot = "shocked.png";
-  else if (recommendedFormat === "DON'T DO THIS" || recommendedFormat === "ACCUSATION") {
-    recommendedHeadshot = "Pointing.png";
-  }
+  const autoPick = pickHeadshotForFormat(recommendedFormat, availableHeadshots);
 
   return {
     recommendedFormat,
     recommendedReason,
     alternativeFormats: ALL_FORMATS.filter((f) => f !== recommendedFormat).slice(0, 2),
-    recommendedHeadshot,
-    headshotReason: "Recommended expression aligns with the emotional hook of this format.",
-    includeHeadshotRecommended: formatHeadshotFit(recommendedFormat) === "yes",
+    recommendedHeadshot: autoPick ? autoPick.actualFilename : "",
+    headshotReason: autoPick
+      ? autoPick.description
+      : "No saved headshot is available for this environment.",
+    includeHeadshotRecommended:
+      Boolean(autoPick) && formatHeadshotFit(recommendedFormat) === "yes",
     suggestedOverlayText: "AI VISIBILITY GAP",
   };
-}
-
-async function listHeadshots(headshotsDir) {
-  if (!headshotsDir) return [];
-  try {
-    const entries = await fs.readdir(headshotsDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name)
-      .filter((name) => /\.(png|jpg|jpeg|webp)$/i.test(name))
-      .sort((a, b) => a.localeCompare(b));
-  } catch (_) {
-    return [];
-  }
 }
 
 function parseJsonObject(text) {
@@ -164,11 +128,24 @@ function parseJsonObject(text) {
   return JSON.parse(trimmed.slice(start, end + 1));
 }
 
-async function callOpenAIForThumbnailRecommendation({ sourceText, requestText }) {
+async function callOpenAIForThumbnailRecommendation({
+  sourceText,
+  requestText,
+  availableHeadshots,
+}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured on this environment.");
   }
+
+  const allowedHeadshots = availableHeadshots.map((headshot) => headshot.actualFilename);
+  const headshotRules = allowedHeadshots.length
+    ? [
+        "Saved headshot library:",
+        formatHeadshotLibraryForPrompt(availableHeadshots),
+        "recommendedHeadshot must be one of the saved filenames above when includeHeadshotRecommended is true.",
+      ].join("\n")
+    : "No saved headshots are available. recommendedHeadshot must be an empty string and includeHeadshotRecommended must be false.";
 
   const systemPrompt = [
     "You are a YouTube thumbnail art director for Total Authority.",
@@ -182,7 +159,7 @@ async function callOpenAIForThumbnailRecommendation({ sourceText, requestText })
     "Allowed formats:",
     ALL_FORMATS.join(", "),
     "Allowed headshots:",
-    DEFAULT_HEADSHOT_CHOICES.join(", "),
+    allowedHeadshots.length ? allowedHeadshots.join(", ") : "none",
     "Return JSON with keys:",
     '{"recommendedFormat":"...","recommendedReason":"...","alternativeFormats":["...","..."],"recommendedHeadshot":"...","headshotReason":"...","includeHeadshotRecommended":true,"suggestedOverlayText":"1-4 words"}',
     "Rules:",
@@ -191,6 +168,7 @@ async function callOpenAIForThumbnailRecommendation({ sourceText, requestText })
     "- suggestedOverlayText max 4 words",
     "- no rhetorical questions",
     "- high click intent",
+    headshotRules,
     "",
     "RUN REQUEST:",
     requestText || "Generate thumbnail recommendations",
@@ -238,7 +216,7 @@ async function callOpenAIForThumbnailRecommendation({ sourceText, requestText })
   return parseJsonObject(text);
 }
 
-function finalizeRecommendation(raw) {
+function finalizeRecommendation(raw, availableHeadshots) {
   const recommendedFormat = sanitizeFormatName(raw.recommendedFormat);
   const alternativesRaw = Array.isArray(raw.alternativeFormats)
     ? raw.alternativeFormats.map(sanitizeFormatName)
@@ -254,8 +232,15 @@ function finalizeRecommendation(raw) {
     alternativeFormats.push(candidate);
   }
 
-  const recommendedHeadshot = normalizeHeadshotName(raw.recommendedHeadshot);
-  const includeHeadshotRecommended = Boolean(raw.includeHeadshotRecommended);
+  const requestedHeadshot = resolveHeadshotName(
+    raw.recommendedHeadshot,
+    availableHeadshots
+  );
+  const fallbackHeadshot = pickHeadshotForFormat(recommendedFormat, availableHeadshots);
+  const selectedHeadshot =
+    requestedHeadshot || (fallbackHeadshot ? fallbackHeadshot.actualFilename : "");
+  const includeHeadshotRecommended =
+    Boolean(raw.includeHeadshotRecommended) && Boolean(selectedHeadshot);
 
   return {
     recommendedFormat,
@@ -263,13 +248,12 @@ function finalizeRecommendation(raw) {
       String(raw.recommendedReason || "").trim() ||
       "Recommended format best matches the episode hook and emotional tension.",
     alternativeFormats,
-    recommendedHeadshot:
-      recommendedHeadshot && DEFAULT_HEADSHOT_CHOICES.includes(recommendedHeadshot)
-        ? recommendedHeadshot
-        : "confident.png",
+    recommendedHeadshot: selectedHeadshot,
     headshotReason:
       String(raw.headshotReason || "").trim() ||
-      "Recommended expression aligns with the emotional hook of this format.",
+      (fallbackHeadshot
+        ? fallbackHeadshot.description
+        : "No saved headshot is available for this environment."),
     includeHeadshotRecommended,
     suggestedOverlayText:
       clampOverlayText(raw.suggestedOverlayText) || "AI VISIBILITY GAP",
@@ -289,16 +273,20 @@ exports.handler = async (event) => {
       return json(400, { ok: false, error: "Provide transcript or topic for thumbnail analysis." });
     }
 
-    const headshotsDir = process.env.HEADSHOTS_DIR || "/Users/chrispanteli/Documents/YT HEADSHOTS";
-    const filesystemHeadshots = await listHeadshots(headshotsDir);
-    const headshotChoices = DEFAULT_HEADSHOT_CHOICES;
+    const { headshots: availableHeadshots } = await listAvailableHeadshots(
+      process.env.HEADSHOTS_DIR
+    );
 
     let recommendation;
     try {
-      const raw = await callOpenAIForThumbnailRecommendation({ sourceText, requestText });
-      recommendation = finalizeRecommendation(raw);
+      const raw = await callOpenAIForThumbnailRecommendation({
+        sourceText,
+        requestText,
+        availableHeadshots,
+      });
+      recommendation = finalizeRecommendation(raw, availableHeadshots);
     } catch (_) {
-      recommendation = fallbackRecommendation(sourceText);
+      recommendation = fallbackRecommendation(sourceText, availableHeadshots);
     }
 
     return json(200, {
@@ -312,8 +300,8 @@ exports.handler = async (event) => {
       headshotReason: recommendation.headshotReason,
       includeHeadshotRecommended: recommendation.includeHeadshotRecommended,
       suggestedOverlayText: recommendation.suggestedOverlayText,
-      headshotChoices,
-      availableHeadshots: filesystemHeadshots,
+      availableHeadshots: availableHeadshots.map((headshot) => headshot.actualFilename),
+      availableHeadshotCount: availableHeadshots.length,
     });
   } catch (err) {
     return json(500, { ok: false, error: err.message || "Failed to build thumbnail options." });

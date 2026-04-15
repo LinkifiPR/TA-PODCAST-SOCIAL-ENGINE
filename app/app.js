@@ -11,7 +11,6 @@ const thumbnailFormatEl = document.getElementById("thumbnailFormat");
 const thumbnailFormatHintEl = document.getElementById("thumbnailFormatHint");
 const thumbnailOverlayEl = document.getElementById("thumbnailOverlay");
 const thumbnailHeadshotHintEl = document.getElementById("thumbnailHeadshotHint");
-const thumbnailHeadshotEl = document.getElementById("thumbnailHeadshot");
 const resultSummary = document.getElementById("resultSummary");
 const resultsWrap = document.getElementById("results");
 const resultCardTemplate = document.getElementById("resultCardTemplate");
@@ -184,6 +183,34 @@ function getAgentLabel(agentId) {
   return match ? match.name : agentId;
 }
 
+function updateHeadshotHint() {
+  const hasUpload = Boolean(headshotFileEl.files?.[0]);
+  const selectedMode = document.querySelector(
+    "input[name='thumbnailHeadshotMode']:checked"
+  );
+
+  if (hasUpload && selectedMode?.value !== "no") {
+    thumbnailHeadshotHintEl.textContent =
+      "Your uploaded headshot will be used first if headshots are enabled for this run.";
+    return;
+  }
+
+  if (selectedMode?.value === "no") {
+    thumbnailHeadshotHintEl.textContent =
+      "Headshots are disabled for this thumbnail run.";
+    return;
+  }
+
+  if ((thumbnailOptions?.availableHeadshotCount || 0) > 0) {
+    thumbnailHeadshotHintEl.textContent =
+      "The app will auto-pick the best saved headshot for the selected format.";
+    return;
+  }
+
+  thumbnailHeadshotHintEl.textContent =
+    "No saved headshots are available, so choose 'No' unless you upload one above.";
+}
+
 function renderThumbnailOptions(options) {
   thumbnailOptions = options;
 
@@ -204,53 +231,19 @@ function renderThumbnailOptions(options) {
     : "";
   thumbnailFormatHintEl.textContent = `Recommended: ${options.recommendedFormat}. ${options.recommendedReason}${altLabel}`;
 
-  thumbnailHeadshotEl.innerHTML = "";
-  const noneOpt = document.createElement("option");
-  noneOpt.value = "";
-  noneOpt.textContent = "No specific headshot";
-  thumbnailHeadshotEl.appendChild(noneOpt);
-
-  const configuredChoices = Array.isArray(options.headshotChoices)
-    ? options.headshotChoices
-    : [];
-  const available = Array.isArray(options.availableHeadshots)
-    ? options.availableHeadshots
-    : [];
-  const lowerAvailable = new Set(available.map((name) => name.toLowerCase()));
-  const mergedChoices = Array.from(
-    new Set([...configuredChoices, ...available].filter(Boolean))
-  );
-  for (const name of mergedChoices) {
-    const opt = document.createElement("option");
-    opt.value = name;
-    const availableLabel = lowerAvailable.has(String(name).toLowerCase())
-      ? ""
-      : " (Upload Required In Netlify)";
-    opt.textContent = `${name}${availableLabel}`;
-    if (name === options.recommendedHeadshot) opt.selected = true;
-    thumbnailHeadshotEl.appendChild(opt);
-  }
-
   const yesRadio = document.querySelector(
     "input[name='thumbnailHeadshotMode'][value='yes']"
   );
   const noRadio = document.querySelector(
     "input[name='thumbnailHeadshotMode'][value='no']"
   );
-  yesRadio.checked = false;
-  noRadio.checked = false;
 
   const hasUpload = Boolean(headshotFileEl.files?.[0]);
-  if (hasUpload) {
-    thumbnailHeadshotHintEl.textContent =
-      "You uploaded a headshot. If you select 'Yes', your uploaded file is used first.";
-  } else if (mergedChoices.length) {
-    thumbnailHeadshotHintEl.textContent =
-      `Recommended: ${options.recommendedHeadshot || "none"} (${options.headshotReason || "expression match"}).`;
-  } else {
-    thumbnailHeadshotHintEl.textContent =
-      "No server headshots detected. Upload one above if you want a person in the thumbnail.";
-  }
+  const recommendedIncludeHeadshot =
+    hasUpload || options.includeHeadshotRecommended === true;
+  yesRadio.checked = recommendedIncludeHeadshot;
+  noRadio.checked = !recommendedIncludeHeadshot;
+  updateHeadshotHint();
 
   thumbnailOverlayEl.value = options.suggestedOverlayText || "";
 }
@@ -307,7 +300,7 @@ function getThumbnailConfig() {
   return {
     formatName: thumbnailFormatEl.value || thumbnailOptions?.recommendedFormat || "ACCUSATION",
     includeHeadshot: selectedMode.value === "yes",
-    selectedHeadshot: thumbnailHeadshotEl.value || "",
+    autoHeadshot: thumbnailOptions?.recommendedHeadshot || "",
     textOverlay: overlay,
   };
 }
@@ -491,5 +484,10 @@ headshotFileEl.addEventListener("change", () => {
     renderThumbnailOptions(thumbnailOptions);
   }
 });
+
+thumbnailFormatEl.addEventListener("change", updateHeadshotHint);
+document
+  .querySelectorAll("input[name='thumbnailHeadshotMode']")
+  .forEach((input) => input.addEventListener("change", updateHeadshotHint));
 
 loadAgents();

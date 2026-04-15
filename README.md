@@ -23,7 +23,7 @@ Transcript-in, multi-agent content engine for Total Authority.
    - `OPENAI_API_KEY`
    - `OPENROUTER_API_KEY`
    - Thumbnail model is fixed to `google/gemini-3-pro-image-preview` (Nano Banana Pro)
-   - Optional (local/server environments with filesystem access): `HEADSHOTS_DIR`
+   - Optional override: `HEADSHOTS_DIR` if you want to point the thumbnail agent at a custom local library instead of the bundled repo headshots
 
 After deploy, open the site URL and run the workflow from the UI.
 
@@ -31,13 +31,15 @@ After deploy, open the site URL and run the workflow from the UI.
 
 1. Paste transcript (or topic) into the input.
 2. Optionally add video URL and run instruction.
-3. Optionally upload a headshot image for thumbnail generation.
+3. Optionally upload a headshot image if you want to override the saved headshot library for one run.
 4. Select agents.
 5. If thumbnail agent is selected, answer the thumbnail questions:
    - Choose format
    - Choose whether to use a headshot
    - Optional overlay text
 6. Click `Run Agents`.
+
+When headshots are enabled, the app now auto-picks the best saved headshot for the chosen thumbnail format. The bundled library lives in [headshots/manifest.json](/Users/chrispanteli/Desktop/CODEX/TA PODCAST SOCIAL ENGINE/headshots/manifest.json).
 
 You get:
 

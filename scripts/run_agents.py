@@ -103,8 +103,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--headshots-dir",
-        default="/Users/chrispanteli/Documents/YT HEADSHOTS",
-        help="Directory containing reusable headshots for thumbnail agents.",
+        default="headshots",
+        help="Directory containing reusable headshots for thumbnail agents. Defaults to bundled repo headshots.",
     )
     parser.add_argument(
         "--headshot",
@@ -310,11 +310,11 @@ def choose_headshot_by_format(format_name: str, available: list[str]) -> str | N
     preferred_order: list[str]
 
     if "dramatic" in lower:
-        preferred_order = ["shocked.png", "surprised.png"]
+        preferred_order = ["complete-shock.png", "shocked.png", "surprised.png"]
     elif "don't do this" in lower or "accusation" in lower:
         preferred_order = ["pointing.png", "disappointed.png"]
     elif "problem" in lower:
-        preferred_order = ["disappointed.png", "shocked.png"]
+        preferred_order = ["disappointed.png", "complete-shock.png", "shocked.png"]
     elif "conversation" in lower:
         preferred_order = ["confident.png"]
     elif "motion" in lower or "affects" in lower:
@@ -322,11 +322,17 @@ def choose_headshot_by_format(format_name: str, available: list[str]) -> str | N
     elif "conflict" in lower:
         preferred_order = ["confident.png", "pointing.png"]
     elif "review" in lower:
-        preferred_order = ["surprised.png", "shocked.png"]
+        preferred_order = ["surprised.png", "complete-shock.png", "shocked.png"]
     elif "title head" in lower:
         preferred_order = ["confident.png", "pointing.png"]
     else:
-        preferred_order = ["confident.png", "pointing.png", "surprised.png", "shocked.png"]
+        preferred_order = [
+            "confident.png",
+            "pointing.png",
+            "surprised.png",
+            "shocked.png",
+            "complete-shock.png",
+        ]
 
     available_lower_map = {name.lower(): name for name in available}
     for filename in preferred_order:
@@ -684,6 +690,11 @@ def main() -> int:
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     output_dir = (pathlib.Path(args.output_root) / timestamp).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    headshots_dir = pathlib.Path(args.headshots_dir).expanduser()
+    if not headshots_dir.is_absolute():
+        headshots_dir = (repo_root / headshots_dir).resolve()
+    else:
+        headshots_dir = headshots_dir.resolve()
 
     context = RunContext(
         source_text=source_text,
@@ -691,7 +702,7 @@ def main() -> int:
         request=args.request,
         dry_run=args.dry_run,
         output_dir=output_dir,
-        headshots_dir=pathlib.Path(args.headshots_dir).expanduser().resolve(),
+        headshots_dir=headshots_dir,
         headshot_override=args.headshot,
     )
 

@@ -6,6 +6,11 @@ const {
   filterAgents,
 } = require("./lib/agents");
 const { loadEnvFile } = require("./lib/env");
+const {
+  findHeadshotByName,
+  listAvailableHeadshots,
+  pickHeadshotForFormat,
+} = require("./lib/headshots");
 
 loadEnvFile();
 
@@ -107,34 +112,6 @@ async function callOpenAI({ model, systemPrompt, userPrompt }) {
 
 function toDataUrlFromBuffer(buffer, mimeType = "image/png") {
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
-}
-
-function pickHeadshotForFormat(formatName, available) {
-  const lower = String(formatName || "").toLowerCase();
-  let preferred;
-
-  if (lower.includes("dramatic")) preferred = ["shocked.png", "surprised.png"];
-  else if (lower.includes("don't do this") || lower.includes("accusation")) preferred = ["pointing.png", "disappointed.png"];
-  else if (lower.includes("problem")) preferred = ["disappointed.png", "shocked.png"];
-  else if (lower.includes("conversation")) preferred = ["confident.png"];
-  else if (lower.includes("motion") || lower.includes("affects")) preferred = ["pointing.png", "surprised.png"];
-  else if (lower.includes("conflict")) preferred = ["confident.png", "pointing.png"];
-  else if (lower.includes("review")) preferred = ["surprised.png", "shocked.png"];
-  else if (lower.includes("title head")) preferred = ["confident.png", "pointing.png"];
-  else preferred = ["confident.png", "pointing.png", "surprised.png", "shocked.png"];
-
-  const map = new Map(available.map((name) => [name.toLowerCase(), name]));
-  for (const wanted of preferred) {
-    if (map.has(wanted)) return map.get(wanted);
-  }
-  return available[0] || null;
-}
-
-function resolveHeadshotName(requestedName, available) {
-  const wanted = String(requestedName || "").trim().toLowerCase();
-  if (!wanted) return null;
-  const map = new Map(available.map((name) => [name.toLowerCase(), name]));
-  return map.get(wanted) || null;
 }
 
 function formatHeadshotFit(formatName) {
@@ -246,29 +223,14 @@ function buildThumbnailPlan({ sourceText, request, hasUploadedHeadshot, availabl
     recommendedFormatName,
     formatReason,
     includeHeadshot,
-    recommendedHeadshot,
-    headshotReason: includeHeadshot
-      ? "Human expression amplifies urgency and click intent for this format."
+    recommendedHeadshot: recommendedHeadshot ? recommendedHeadshot.actualFilename : "",
+    headshotReason: recommendedHeadshot
+      ? recommendedHeadshot.description
       : "This format performs better with a clean concept-led visual.",
     textOverlay,
     imagePrompt,
     recommendedTextOverlay: textOverlay,
   };
-}
-
-async function listHeadshots(headshotsDir) {
-  if (!headshotsDir) return [];
-
-  try {
-    const entries = await fs.readdir(headshotsDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name)
-      .filter((name) => /\.(png|jpg|jpeg|webp)$/i.test(name))
-      .sort((a, b) => a.localeCompare(b));
-  } catch (_) {
-    return [];
-  }
 }
 
 function extractOpenRouterImageRef(payload) {
@@ -403,8 +365,9 @@ async function runThumbnailAgent({
   headshotFilename,
   thumbnailConfig,
 }) {
-  const headshotsDir = process.env.HEADSHOTS_DIR || "/Users/chrispanteli/Documents/YT HEADSHOTS";
-  const availableHeadshots = await listHeadshots(headshotsDir);
+  const { headshots: availableHeadshots } = await listAvailableHeadshots(
+    process.env.HEADSHOTS_DIR
+  );
 
   const plan = buildThumbnailPlan({
     sourceText,
@@ -418,7 +381,9 @@ async function runThumbnailAgent({
     typeof thumbnailConfig?.includeHeadshot === "boolean"
       ? thumbnailConfig.includeHeadshot
       : plan.includeHeadshot === true;
-  const chosenHeadshot = String(thumbnailConfig?.selectedHeadshot || plan.recommendedHeadshot || "").trim();
+  const chosenHeadshot = String(
+    thumbnailConfig?.autoHeadshot || plan.recommendedHeadshot || ""
+  ).trim();
   const chosenOverlayRaw =
     typeof thumbnailConfig?.textOverlay === "string"
       ? thumbnailConfig.textOverlay.trim()
@@ -429,66 +394,80 @@ async function runThumbnailAgent({
     .slice(0, 4)
     .join(" ");
 
-  const subjectLine = includeHeadshot
-    ? "hyper-stylised portrait of the host with a confident, high-contrast expression"
-    : "single striking visual metaphor for AI visibility and search exclusion";
-
-  const basePrompt = [
-    `${chosenFormat} style YouTube thumbnail composition`,
-    subjectLine,
-    "focus on AI visibility, recommendation engines, and brand discoverability",
-    "dark charcoal to deep navy gradient background",
-    "cinematic directional lighting with sharp subject separation",
-    "vivid orange (#F97315) rim light and glow accents as dominant visual signature",
-    "do not render any extra text, subtitles, timestamps, names, logos, watermarks, UI labels, or captions",
-    "hard constraint: any unapproved text is a failure",
-    "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
-  ].join(", ");
-  const imagePrompt = chosenOverlay
-    ? `${basePrompt}, approved overlay is exactly this and nothing else: "${chosenOverlay}", if additional text would appear then render no text instead`
-    : `${basePrompt}, absolutely no text, letters, numbers, symbols, labels, subtitles, or captions anywhere in the image`;
-
   const formatName = chosenFormat;
   const formatReason = describeFormatReason(chosenFormat);
-  const headshotReason = includeHeadshot
-    ? "Human expression amplifies urgency and click intent for this format."
-    : "This format performs better with a clean concept-led visual.";
   const textOverlay = chosenOverlay;
 
   let selectedHeadshot = null;
   let selectedHeadshotDataUrl = null;
+  let selectedHeadshotMeta = null;
+  let headshotReason = "This format performs better with a clean concept-led visual.";
 
   if (includeHeadshot && headshotDataUrl) {
     selectedHeadshot = headshotFilename || "uploaded-headshot";
     selectedHeadshotDataUrl = headshotDataUrl;
+    headshotReason = "Uploaded headshot override supplied by the user for this run.";
   } else {
     if (includeHeadshot && !availableHeadshots.length) {
       throw new Error(
-        "Headshot was requested but no server headshot library is available. Upload a headshot file in the UI and rerun."
+        "Headshot was requested but no saved headshot library is available. Upload a headshot file in the UI and rerun."
       );
     }
 
     if (includeHeadshot && availableHeadshots.length) {
-      const recommended = chosenHeadshot || String(plan.recommendedHeadshot || "").trim();
-      const resolvedRecommended = resolveHeadshotName(recommended, availableHeadshots);
-      const chosen = resolvedRecommended || pickHeadshotForFormat(formatName, availableHeadshots);
+      const chosenMeta =
+        findHeadshotByName(chosenHeadshot, availableHeadshots) ||
+        pickHeadshotForFormat(formatName, availableHeadshots);
 
-      if (!chosen) {
+      if (!chosenMeta) {
         throw new Error("Headshot was requested, but no matching headshot file was found on server.");
       }
 
-      const bytes = await fs.readFile(path.join(headshotsDir, chosen));
-      const ext = path.extname(chosen).toLowerCase();
+      const bytes = await fs.readFile(chosenMeta.fullPath);
+      const ext = path.extname(chosenMeta.actualFilename).toLowerCase();
       const mimeType =
         ext === ".jpg" || ext === ".jpeg"
           ? "image/jpeg"
           : ext === ".webp"
             ? "image/webp"
             : "image/png";
-      selectedHeadshot = chosen;
+      selectedHeadshot = chosenMeta.actualFilename;
+      selectedHeadshotMeta = chosenMeta;
       selectedHeadshotDataUrl = toDataUrlFromBuffer(bytes, mimeType);
+      headshotReason = chosenMeta.description;
     }
   }
+
+  const promptSegments = [
+    `${chosenFormat} style YouTube thumbnail composition`,
+    selectedHeadshotDataUrl
+      ? "hyper-stylised portrait of the host as the dominant focal subject"
+      : "single striking visual metaphor for AI visibility and search exclusion",
+    "focus on AI visibility, recommendation engines, and brand discoverability",
+    "dark charcoal to deep navy gradient background",
+    "cinematic directional lighting with sharp subject separation",
+    "vivid orange (#F97315) rim light and glow accents as dominant visual signature",
+    selectedHeadshotDataUrl
+      ? "use the supplied headshot as the exact identity and expression reference, preserve likeness, preserve pose intent, and make the person feel native to the scene"
+      : "",
+    selectedHeadshotDataUrl
+      ? "match perspective, lighting direction, edge detail, shadowing, contrast, and color grade so the headshot blends seamlessly into the final artwork"
+      : "",
+    selectedHeadshotMeta
+      ? `expression target: ${selectedHeadshotMeta.description}`
+      : "",
+    selectedHeadshotDataUrl
+      ? "avoid sticker-cutout edges, pasted-on outlines, duplicate people, warped hands, or mismatched anatomy"
+      : "",
+    "do not render any extra text, subtitles, timestamps, names, logos, watermarks, UI labels, or captions",
+    "hard constraint: any unapproved text is a failure",
+    "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
+  ].filter(Boolean);
+
+  const basePrompt = promptSegments.join(", ");
+  const imagePrompt = chosenOverlay
+    ? `${basePrompt}, approved overlay is exactly this and nothing else: "${chosenOverlay}", if additional text would appear then render no text instead`
+    : `${basePrompt}, absolutely no text, letters, numbers, symbols, labels, subtitles, or captions anywhere in the image`;
 
   const imageResult = await callOpenRouterImage({
     prompt: imagePrompt,
