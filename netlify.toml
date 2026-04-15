@@ -27,3 +27,8 @@
   from = "/api/thumbnail-job"
   to = "/.netlify/functions/thumbnail-job"
   status = 200
+
+[[redirects]]
+  from = "/api/agent-job"
+  to = "/.netlify/functions/agent-job"
+  status = 200

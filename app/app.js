@@ -20,6 +20,7 @@ let thumbnailOptions = null;
 let thumbnailOptionsTimer = null;
 const THUMBNAIL_POLL_INTERVAL_MS = 2500;
 const THUMBNAIL_POLL_TIMEOUT_MS = 8 * 60 * 1000;
+const BACKGROUND_AGENT_IDS = new Set(["yt-intro-title-description"]);
 
 function setStatus(message, isError = false) {
   statusText.textContent = message;
@@ -354,6 +355,9 @@ async function runSingleAgent(payloadBase, agentId) {
   if (agentId === "yt-thumbnail-generator") {
     return runThumbnailJob(payloadBase);
   }
+  if (BACKGROUND_AGENT_IDS.has(agentId)) {
+    return runAgentJob(payloadBase, agentId);
+  }
 
   const response = await fetch("/api/run", {
     method: "POST",
@@ -372,6 +376,58 @@ async function runSingleAgent(payloadBase, agentId) {
     throw new Error(`No result returned for ${agentId}.`);
   }
   return result;
+}
+
+async function runAgentJob(payloadBase, agentId) {
+  const startResponse = await fetch("/api/agent-job", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payloadBase,
+      selectedAgents: [agentId],
+    }),
+  });
+
+  const startPayload = await parseApiResponse(startResponse);
+  const jobId = String(startPayload.jobId || "").trim();
+  if (!jobId) {
+    throw new Error("Background agent job did not return an id.");
+  }
+
+  const deadline = Date.now() + THUMBNAIL_POLL_TIMEOUT_MS;
+  setStatus(`${getAgentLabel(agentId)} queued...`);
+
+  while (Date.now() < deadline) {
+    await sleep(THUMBNAIL_POLL_INTERVAL_MS);
+    const pollResponse = await fetch(
+      `/api/agent-job?jobId=${encodeURIComponent(jobId)}`,
+      {
+        headers: { "Cache-Control": "no-store" },
+      }
+    );
+    if (pollResponse.status === 404) {
+      continue;
+    }
+    const pollPayload = await parseApiResponse(pollResponse);
+    const status = String(pollPayload.status || "queued");
+
+    if (status === "completed") {
+      if (!pollPayload.result || pollPayload.result.ok !== true) {
+        throw new Error("Background agent job completed without a valid result.");
+      }
+      return pollPayload.result;
+    }
+
+    if (status === "failed") {
+      throw new Error(pollPayload.error || "Background agent generation failed.");
+    }
+
+    setStatus(`Generating ${getAgentLabel(agentId)} in background...`);
+  }
+
+  throw new Error(
+    `${getAgentLabel(agentId)} is still running in the background. Wait a moment and try again if needed.`
+  );
 }
 
 async function runThumbnailJob(payloadBase) {
@@ -399,6 +455,9 @@ async function runThumbnailJob(payloadBase) {
         headers: { "Cache-Control": "no-store" },
       }
     );
+    if (pollResponse.status === 404) {
+      continue;
+    }
     const pollPayload = await parseApiResponse(pollResponse);
     status = String(pollPayload.status || "queued");
 

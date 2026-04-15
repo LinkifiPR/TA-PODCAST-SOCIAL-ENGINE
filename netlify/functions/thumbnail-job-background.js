@@ -22,11 +22,7 @@ exports.handler = async (event) => {
   }
 
   const mark = async (payload) => {
-    const existing =
-      (await store.get(jobId, {
-        type: "json",
-        consistency: "strong",
-      })) || {};
+    const existing = (await store.get(jobId, { type: "json" })) || {};
     await store.setJSON(jobId, {
       ...existing,
       ...payload,

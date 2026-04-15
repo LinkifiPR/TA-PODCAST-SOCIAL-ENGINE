@@ -1,9 +1,10 @@
 const { connectLambda, getStore } = require("@netlify/blobs");
 const { loadEnvFile } = require("./lib/env");
+const { loadManifest, filterAgents } = require("./lib/agents");
 
 loadEnvFile();
 
-const THUMBNAIL_JOB_STORE = "thumbnail-jobs";
+const AGENT_JOB_STORE = "agent-jobs";
 
 function json(statusCode, body) {
   return {
@@ -24,7 +25,7 @@ function getBaseUrl(event) {
     try {
       return new URL(event.rawUrl).origin;
     } catch (_) {
-      // fall through
+      // continue
     }
   }
 
@@ -38,19 +39,16 @@ function getBaseUrl(event) {
     event.headers?.host ||
     process.env.URL?.replace(/^https?:\/\//, "");
 
-  if (host) {
-    return `${proto}://${host}`;
-  }
-
+  if (host) return `${proto}://${host}`;
   if (process.env.URL) return process.env.URL;
   if (process.env.DEPLOY_PRIME_URL) return process.env.DEPLOY_PRIME_URL;
 
-  throw new Error("Could not determine the site URL for background thumbnail jobs.");
+  throw new Error("Could not determine the site URL for background agent jobs.");
 }
 
 async function getJobStore(event) {
   connectLambda(event);
-  return getStore(THUMBNAIL_JOB_STORE);
+  return getStore(AGENT_JOB_STORE);
 }
 
 exports.handler = async (event) => {
@@ -67,12 +65,12 @@ exports.handler = async (event) => {
         event.queryStringParameters?.id ||
         "";
       if (!jobId) {
-        return json(400, { ok: false, error: "Missing thumbnail job id." });
+        return json(400, { ok: false, error: "Missing agent job id." });
       }
 
       const job = await store.get(jobId, { type: "json" });
       if (!job) {
-        return json(404, { ok: false, error: "Thumbnail job not found." });
+        return json(404, { ok: false, error: "Agent job not found." });
       }
 
       return json(200, {
@@ -94,15 +92,34 @@ exports.handler = async (event) => {
       return json(400, { ok: false, error: "Provide transcript text or topic." });
     }
 
+    const selectedAgentIds = Array.isArray(body.selectedAgents) ? body.selectedAgents : [];
+    const { agents } = await loadManifest();
+    const selectedAgents = filterAgents(agents, selectedAgentIds);
+    if (selectedAgents.length !== 1) {
+      return json(400, {
+        ok: false,
+        error: "Background agent jobs require exactly one selected agent.",
+      });
+    }
+
+    const [agent] = selectedAgents;
+    if (agent.executor !== "text") {
+      return json(400, {
+        ok: false,
+        error: "Background agent jobs currently support text agents only.",
+      });
+    }
+
     const jobId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     await store.setJSON(jobId, {
       status: "queued",
+      agentId: agent.id,
       createdAt,
       updatedAt: createdAt,
     });
 
-    const backgroundUrl = `${getBaseUrl(event)}/.netlify/functions/thumbnail-job-background`;
+    const backgroundUrl = `${getBaseUrl(event)}/.netlify/functions/agent-job-background`;
     const invokeResponse = await fetch(backgroundUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -112,39 +129,34 @@ exports.handler = async (event) => {
         topic,
         videoUrl: body.videoUrl || "[VIDEO_URL]",
         request: body.request || "Generate all sections unless explicitly told otherwise.",
-        headshotDataUrl:
-          typeof body.headshotDataUrl === "string" ? body.headshotDataUrl : null,
-        headshotFilename:
-          typeof body.headshotFilename === "string" ? body.headshotFilename : null,
-        thumbnailConfig:
-          body.thumbnailConfig && typeof body.thumbnailConfig === "object"
-            ? body.thumbnailConfig
-            : null,
+        selectedAgents: [agent.id],
       }),
     });
 
     if (!invokeResponse.ok && invokeResponse.status !== 202) {
       await store.setJSON(jobId, {
         status: "failed",
+        agentId: agent.id,
         createdAt,
         updatedAt: new Date().toISOString(),
-        error: `Failed to start background thumbnail job (HTTP ${invokeResponse.status}).`,
+        error: `Failed to start background agent job (HTTP ${invokeResponse.status}).`,
       });
       return json(500, {
         ok: false,
-        error: "Could not start thumbnail generation.",
+        error: "Could not start background agent generation.",
       });
     }
 
     return json(202, {
       ok: true,
       jobId,
+      agentId: agent.id,
       status: "queued",
     });
   } catch (err) {
     return json(500, {
       ok: false,
-      error: err.message || "Unexpected error while creating thumbnail job.",
+      error: err.message || "Unexpected error while creating background agent job.",
     });
   }
 };

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Transcript-in, multi-agent content engine for Total Authority.",
   "scripts": {
-    "check": "node --check app/app.js && node --check netlify/functions/run-agents.js && node --check netlify/functions/thumbnail-options.js && node --check netlify/functions/thumbnail-job.js && node --check netlify/functions/thumbnail-job-background.js && node --check netlify/functions/lib/thumbnail.js"
+    "check": "node --check app/app.js && node --check netlify/functions/run-agents.js && node --check netlify/functions/thumbnail-options.js && node --check netlify/functions/thumbnail-job.js && node --check netlify/functions/thumbnail-job-background.js && node --check netlify/functions/agent-job.js && node --check netlify/functions/agent-job-background.js && node --check netlify/functions/lib/thumbnail.js && node --check netlify/functions/lib/text-agent.js"
   },
   "repository": {
     "type": "git",
