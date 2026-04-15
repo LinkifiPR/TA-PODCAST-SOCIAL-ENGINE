@@ -7,7 +7,16 @@ loadEnvFile();
 const THUMBNAIL_JOB_STORE = "thumbnail-jobs";
 
 async function getJobStore(event) {
-  connectLambda(event);
+  if (typeof event?.blobs === "string" && event.blobs) {
+    try {
+      connectLambda(event);
+    } catch (err) {
+      console.warn(
+        "thumbnail-job-background: unable to hydrate blobs context from lambda event",
+        err?.message || err
+      );
+    }
+  }
   return getStore(THUMBNAIL_JOB_STORE);
 }
 
