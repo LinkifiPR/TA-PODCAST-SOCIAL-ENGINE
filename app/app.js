@@ -10,6 +10,7 @@ const thumbnailSetupEl = document.getElementById("thumbnailSetup");
 const thumbnailFormatEl = document.getElementById("thumbnailFormat");
 const thumbnailFormatHintEl = document.getElementById("thumbnailFormatHint");
 const thumbnailOverlayEl = document.getElementById("thumbnailOverlay");
+const thumbnailGuidanceEl = document.getElementById("thumbnailGuidance");
 const thumbnailHeadshotHintEl = document.getElementById("thumbnailHeadshotHint");
 const thumbnailHeadshotQuestionWrapEl = document.getElementById(
   "thumbnailHeadshotQuestionWrap"
@@ -31,6 +32,7 @@ const THUMBNAIL_POLL_INTERVAL_MS = 2500;
 const THUMBNAIL_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 const BACKGROUND_AGENT_IDS = new Set(["yt-intro-title-description"]);
 const MAX_HEADSHOT_UPLOAD_BYTES = 2.25 * 1024 * 1024;
+const MAX_THUMBNAIL_ADDITIONAL_CHARS = 420;
 
 function setStatus(message, isError = false) {
   statusText.textContent = message;
@@ -65,6 +67,13 @@ function assertHeadshotUploadSize(dataUrl) {
   throw new Error(
     "Uploaded headshot is too large. Use a JPG/PNG under ~2MB for reliable generation."
   );
+}
+
+function normalizeThumbnailAdditionalInstructions(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_THUMBNAIL_ADDITIONAL_CHARS);
 }
 
 async function fileToOptimizedDataUrl(file) {
@@ -372,12 +381,16 @@ function getThumbnailConfig() {
     .filter(Boolean)
     .slice(0, 4)
     .join(" ");
+  const additionalInstructions = normalizeThumbnailAdditionalInstructions(
+    thumbnailGuidanceEl.value
+  );
 
   return {
     formatName: thumbnailFormatEl.value || thumbnailOptions?.recommendedFormat || "ACCUSATION",
     includeHeadshot: hasUpload ? true : selectedMode.value === "yes",
     autoHeadshot: thumbnailOptions?.recommendedHeadshot || "",
     textOverlay: overlay,
+    additionalInstructions,
   };
 }
 

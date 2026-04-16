@@ -186,6 +186,13 @@ function describeFormatReason(formatName) {
   return reasons[formatName] || "Matched to the transcript hook and emotional tension.";
 }
 
+function normalizeAdditionalInstructions(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 420);
+}
+
 function inferTopicPhrase(sourceText) {
   const cleaned = String(sourceText || "")
     .replace(/\s+/g, " ")
@@ -441,6 +448,9 @@ async function runThumbnailAgent({
     .filter(Boolean)
     .slice(0, 4)
     .join(" ");
+  const chosenAdditionalInstructions = normalizeAdditionalInstructions(
+    thumbnailConfig?.additionalInstructions
+  );
 
   const formatName = chosenFormat;
   const formatReason = describeFormatReason(chosenFormat);
@@ -507,15 +517,21 @@ async function runThumbnailAgent({
     selectedHeadshotDataUrl
       ? "avoid sticker-cutout edges, pasted-on outlines, duplicate people, warped hands, or mismatched anatomy"
       : "",
-    "do not render any extra text, subtitles, timestamps, names, logos, watermarks, UI labels, or captions",
-    "hard constraint: any unapproved text is a failure",
+    chosenAdditionalInstructions
+      ? `user-provided additional instructions (apply explicitly unless unsafe): ${chosenAdditionalInstructions}`
+      : "",
+    "avoid random text, watermarks, timestamps, or UI labels unless explicitly requested",
     "1280x720 YouTube thumbnail, ultra sharp, high contrast, cinematic, minimal composition, no borders, professional art direction",
   ].filter(Boolean);
 
   const basePrompt = promptSegments.join(", ");
   const imagePrompt = chosenOverlay
-    ? `${basePrompt}, approved overlay is exactly this and nothing else: "${chosenOverlay}", if additional text would appear then render no text instead`
-    : `${basePrompt}, absolutely no text, letters, numbers, symbols, labels, subtitles, or captions anywhere in the image`;
+    ? chosenAdditionalInstructions
+      ? `${basePrompt}, required overlay text is exactly "${chosenOverlay}", do not add unrelated text, also follow this extra user direction exactly: "${chosenAdditionalInstructions}"`
+      : `${basePrompt}, required overlay text is exactly "${chosenOverlay}" and no other words`
+    : chosenAdditionalInstructions
+      ? `${basePrompt}, no random text unless explicitly required by this extra user direction: "${chosenAdditionalInstructions}"`
+      : `${basePrompt}, absolutely no text, letters, numbers, symbols, labels, subtitles, or captions anywhere in the image`;
 
   const imageResult = await callOpenRouterImage({
     prompt: imagePrompt,
@@ -530,6 +546,7 @@ async function runThumbnailAgent({
     `- Headshot Used: ${selectedHeadshot || "No"}`,
     `- Headshot Rationale: ${headshotReason || "N/A"}`,
     `- Text Overlay: ${textOverlay || "No text overlay"}`,
+    `- Additional Instructions: ${chosenAdditionalInstructions || "None"}`,
     "",
     "## Final Prompt",
     "",
